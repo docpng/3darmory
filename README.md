@@ -76,6 +76,8 @@ Paid orders appear under **Admin → Orders**, and stock goes down automatically
 
 ## Deploying
 
+> **Testing on Cloudflare?** See [docs/DEPLOY-CLOUDFLARE.md](docs/DEPLOY-CLOUDFLARE.md) for a step-by-step guide to giving the store a public HTTPS address with Cloudflare Tunnel, including Stripe test payments.
+
 The app is a single Node process. Deploy it to any host that offers a **persistent disk**, such as Render, Railway, Fly.io or a VPS, and point `DATA_DIR` at that disk so your products, orders and uploaded images survive restarts and redeploys.
 
 ```bash
