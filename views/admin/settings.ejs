@@ -1,0 +1,49 @@
+<%- include('partials/top') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Site settings</h1>
+    <p class="muted">Edit the text shown across your storefront.</p>
+  </div>
+</div>
+
+<% if (errors.length) { %>
+  <div class="flash flash-error"><ul><% errors.forEach((e) => { %><li><%= e %></li><% }) %></ul></div>
+<% } %>
+
+<form class="form settings-form" method="post" action="/admin/settings">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+  <section class="panel">
+    <h2>Brand</h2>
+    <div class="field-row">
+      <label class="field"><span>Store name *</span><input class="input" name="store_name" value="<%= settings.store_name %>" required></label>
+      <label class="field"><span>Tagline</span><input class="input" name="tagline" value="<%= settings.tagline %>"></label>
+    </div>
+    <label class="field"><span>Announcement bar <small class="muted">(leave blank to hide)</small></span><input class="input" name="announcement" value="<%= settings.announcement %>"></label>
+    <label class="field"><span>Contact email</span><input class="input" type="email" name="contact_email" value="<%= settings.contact_email %>"></label>
+  </section>
+
+  <section class="panel">
+    <h2>Home page</h2>
+    <label class="field"><span>Hero headline</span><input class="input" name="hero_title" value="<%= settings.hero_title %>"></label>
+    <label class="field"><span>Hero text</span><textarea class="input" name="hero_subtitle" rows="3"><%= settings.hero_subtitle %></textarea></label>
+  </section>
+
+  <section class="panel">
+    <h2>About page</h2>
+    <label class="field"><span>About text <small class="muted">(blank line between paragraphs)</small></span><textarea class="input" name="about_text" rows="8"><%= settings.about_text %></textarea></label>
+  </section>
+
+  <section class="panel">
+    <h2>Shipping</h2>
+    <div class="field-row">
+      <label class="field"><span>Flat shipping rate (<%= currency.toUpperCase() %>)</span><input class="input" name="shipping_flat" inputmode="decimal" value="<%= centsToInput(Number(settings.shipping_flat_cents)) %>"></label>
+      <label class="field"><span>Free shipping over (<%= currency.toUpperCase() %>) <small class="muted">(blank or 0 to disable)</small></span><input class="input" name="free_shipping_threshold" inputmode="decimal" value="<%= Number(settings.free_shipping_threshold_cents) ? centsToInput(Number(settings.free_shipping_threshold_cents)) : '' %>"></label>
+    </div>
+  </section>
+
+  <button class="btn btn-gold btn-lg" type="submit">Save settings</button>
+</form>
+
+<%- include('partials/bottom') %>

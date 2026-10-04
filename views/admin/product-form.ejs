@@ -1,0 +1,112 @@
+<%- include('partials/top') %>
+<% const isNew = !product.id; %>
+
+<div class="admin-head">
+  <div>
+    <a class="muted small" href="/admin/products">&larr; Products</a>
+    <h1><%= isNew ? 'New product' : product.name %></h1>
+  </div>
+  <% if (!isNew && product.active) { %><a class="btn btn-ghost" href="/product/<%= product.slug %>" target="_blank" rel="noopener">View in store &nearr;</a><% } %>
+</div>
+
+<% if (errors.length) { %>
+  <div class="flash flash-error"><ul><% errors.forEach((e) => { %><li><%= e %></li><% }) %></ul></div>
+<% } %>
+
+<form class="form product-form" method="post" enctype="multipart/form-data"
+      action="<%= isNew ? '/admin/products' : `/admin/products/${product.id}` %>?_csrf=<%= csrfToken %>">
+  <div class="form-main">
+    <section class="panel">
+      <h2>Details</h2>
+      <label class="field">
+        <span>Name *</span>
+        <input class="input" name="name" value="<%= product.name %>" required maxlength="120" placeholder="e.g. Obsidian Dragon Bust">
+      </label>
+      <label class="field">
+        <span>Description</span>
+        <textarea class="input" name="description" rows="7" maxlength="5000" placeholder="What makes this piece special? Leave a blank line between paragraphs."><%= product.description %></textarea>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>Material</span>
+          <input class="input" name="material" value="<%= product.material %>" maxlength="120" placeholder="e.g. PLA+ silk gold">
+        </label>
+        <label class="field">
+          <span>Size / dimensions</span>
+          <input class="input" name="dimensions" value="<%= product.dimensions %>" maxlength="120" placeholder="e.g. 18 × 12 × 14 cm">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Pricing</h2>
+      <div class="field-row">
+        <label class="field">
+          <span>Price (<%= currency.toUpperCase() %>) *</span>
+          <input class="input" name="price" value="<%= centsToInput(product.price_cents) %>" inputmode="decimal" required placeholder="24.99">
+        </label>
+        <label class="field">
+          <span>Compare-at price <small class="muted">(optional, shows a sale)</small></span>
+          <input class="input" name="compare_at" value="<%= centsToInput(product.compare_at_cents) %>" inputmode="decimal" placeholder="29.99">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Inventory</h2>
+      <label class="check">
+        <input type="checkbox" name="track_stock" <%= product.stock !== null ? 'checked' : '' %> data-toggle-target="#stock-field">
+        <span>Track stock for this product</span>
+      </label>
+      <p class="muted small">Untick for made-to-order items — they never sell out.</p>
+      <label class="field" id="stock-field">
+        <span>Quantity in stock</span>
+        <input class="input input-narrow" type="number" min="0" step="1" name="stock" value="<%= product.stock ?? 0 %>">
+      </label>
+    </section>
+  </div>
+
+  <div class="form-side">
+    <section class="panel">
+      <h2>Visibility</h2>
+      <label class="check"><input type="checkbox" name="active" <%= product.active ? 'checked' : '' %>><span>Visible in store</span></label>
+      <label class="check"><input type="checkbox" name="featured" <%= product.featured ? 'checked' : '' %>><span>Feature on home page</span></label>
+      <label class="field">
+        <span>Category</span>
+        <select class="input" name="category_id">
+          <option value="">Uncategorised</option>
+          <% categories.forEach((c) => { %>
+            <option value="<%= c.id %>" <%= product.category_id === c.id ? 'selected' : '' %>><%= c.name %></option>
+          <% }) %>
+        </select>
+      </label>
+    </section>
+
+    <section class="panel">
+      <h2>Image</h2>
+      <div class="image-preview">
+        <img src="<%= product.image || '/img/logo.svg' %>" alt="" data-image-preview class="<%= product.image ? '' : 'is-placeholder' %>">
+      </div>
+      <label class="field">
+        <span><%= product.image ? 'Replace image' : 'Upload image' %></span>
+        <input class="input" type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif" data-image-input>
+      </label>
+      <p class="muted small">JPG, PNG, WebP or GIF up to 8 MB. Square images look best.</p>
+      <% if (product.image) { %>
+        <label class="check"><input type="checkbox" name="remove_image"><span>Remove current image</span></label>
+      <% } %>
+    </section>
+
+    <section class="panel">
+      <h2>URL</h2>
+      <label class="field">
+        <span>Slug <small class="muted">(optional)</small></span>
+        <input class="input" name="slug" value="<%= product.slug %>" maxlength="80" placeholder="auto-generated from name">
+      </label>
+    </section>
+
+    <button class="btn btn-gold btn-lg btn-block" type="submit"><%= isNew ? 'Create product' : 'Save changes' %></button>
+  </div>
+</form>
+
+<%- include('partials/bottom') %>

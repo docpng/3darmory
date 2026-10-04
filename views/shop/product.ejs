@@ -1,0 +1,84 @@
+<%- include('../partials/header') %>
+
+<section class="section section-tight">
+  <div class="container">
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="/shop">Shop</a>
+      <% if (product.category_name) { %><span>/</span><a href="/shop?category=<%= product.category_slug %>"><%= product.category_name %></a><% } %>
+      <span>/</span><span aria-current="page"><%= product.name %></span>
+    </nav>
+
+    <div class="product-detail">
+      <div class="product-gallery">
+        <% if (product.image) { %>
+          <img src="<%= product.image %>" alt="<%= product.name %>">
+        <% } else { %>
+          <div class="product-card-placeholder"><img src="/img/logo.svg" alt=""></div>
+        <% } %>
+      </div>
+
+      <div class="product-info">
+        <% if (product.category_name) { %><span class="eyebrow"><%= product.category_name %></span><% } %>
+        <h1><%= product.name %></h1>
+        <div class="price price-lg">
+          <span><%= money(product.price_cents) %></span>
+          <% if (product.compare_at_cents) { %>
+            <s><%= money(product.compare_at_cents) %></s>
+            <span class="badge">Save <%= money(product.compare_at_cents - product.price_cents) %></span>
+          <% } %>
+        </div>
+
+        <p class="stock <%= available ? 'in' : 'out' %>">
+          <% if (!available) { %>Sold out — check back soon
+          <% } else if (product.stock === null) { %>Made to order · ships in 5–10 days
+          <% } else if (product.stock <= 3) { %>Only <%= product.stock %> left in stock
+          <% } else { %>In stock · ready to ship<% } %>
+        </p>
+
+        <div class="prose"><% product.description.split(/\n{2,}/).forEach((para) => { %><p><%= para %></p><% }) %></div>
+
+        <% if (product.material || product.dimensions) { %>
+          <dl class="specs">
+            <% if (product.material) { %><div><dt>Material</dt><dd><%= product.material %></dd></div><% } %>
+            <% if (product.dimensions) { %><div><dt>Size</dt><dd><%= product.dimensions %></dd></div><% } %>
+          </dl>
+        <% } %>
+
+        <% if (available) { %>
+          <form class="add-to-cart" method="post" action="/cart/add">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="productId" value="<%= product.id %>">
+            <label class="sr-only" for="quantity">Quantity</label>
+            <div class="qty">
+              <button type="button" data-qty-step="-1" aria-label="Decrease quantity">&minus;</button>
+              <input id="quantity" name="quantity" type="number" min="1" max="<%= maxQty %>" value="1" inputmode="numeric">
+              <button type="button" data-qty-step="1" aria-label="Increase quantity">+</button>
+            </div>
+            <button class="btn btn-gold btn-lg btn-block" type="submit">Add to cart</button>
+          </form>
+        <% } else { %>
+          <button class="btn btn-ghost btn-lg btn-block" disabled>Sold out</button>
+        <% } %>
+
+        <ul class="perks">
+          <li>Secure payment with Stripe</li>
+          <li>Inspected &amp; hand-finished before shipping</li>
+          <li>Protective, recyclable packaging</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<% if (related.length) { %>
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-head"><div><span class="eyebrow">Keep browsing</span><h2>You may also like</h2></div></div>
+    <div class="product-grid">
+      <% related.forEach((product) => { %><%- include('../partials/product-card', { product }) %><% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<%- include('../partials/footer') %>

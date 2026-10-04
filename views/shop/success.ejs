@@ -1,0 +1,34 @@
+<%- include('../partials/header') %>
+
+<section class="section">
+  <div class="container narrow center">
+    <div class="success-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="40" height="40"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+    </div>
+    <span class="eyebrow">Order #<%= order.id %></span>
+    <h1>Thank you<%= order.customer_name ? `, ${order.customer_name.split(' ')[0]}` : '' %>!</h1>
+    <p class="lead">
+      <% if (order.status === 'pending') { %>
+        Your payment is processing. We'll email <%= order.customer_email || 'you' %> as soon as it clears.
+      <% } else { %>
+        Your order is confirmed and heading to the workshop. A receipt has been sent to <%= order.customer_email || 'your email' %>.
+      <% } %>
+    </p>
+
+    <div class="summary summary-static">
+      <h2>Order summary</h2>
+      <ul class="order-lines">
+        <% order.items.forEach((item) => { %>
+          <li><span><%= item.quantity %> × <%= item.name %></span><span><%= money(item.unit_price_cents * item.quantity) %></span></li>
+        <% }) %>
+      </ul>
+      <dl>
+        <div><dt>Shipping</dt><dd><%= order.shipping_cents === 0 ? 'Free' : money(order.shipping_cents) %></dd></div>
+        <div class="summary-total"><dt>Total paid</dt><dd><%= money(order.total_cents) %></dd></div>
+      </dl>
+    </div>
+    <a class="btn btn-gold" href="/shop">Continue shopping</a>
+  </div>
+</section>
+
+<%- include('../partials/footer') %>

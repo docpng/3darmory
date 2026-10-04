@@ -1,0 +1,31 @@
+<%- include('head') %>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <% if (settings.announcement) { %>
+    <div class="announcement"><%= settings.announcement %></div>
+  <% } %>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="<%= settings.store_name %> home">
+        <img src="/img/logo.svg" alt="" width="34" height="38">
+        <span class="brand-name"><%= settings.store_name %></span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" data-nav-toggle>
+        <span></span><span></span><span></span><span class="sr-only">Menu</span>
+      </button>
+      <nav class="site-nav" id="site-nav">
+        <a href="/shop" class="<%= currentPath === '/shop' ? 'active' : '' %>">Shop all</a>
+        <% categories.forEach((c) => { %>
+          <a href="/shop?category=<%= c.slug %>"><%= c.name %></a>
+        <% }) %>
+        <a href="/about" class="<%= currentPath === '/about' ? 'active' : '' %>">About</a>
+        <a href="/cart" class="cart-link" aria-label="Cart, <%= cartCount %> items">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M5 7h14l-1.2 11.1a2 2 0 0 1-2 1.9H8.2a2 2 0 0 1-2-1.9Z M9 7V6a3 3 0 0 1 6 0v1"/></svg>
+          <span>Cart</span>
+          <% if (cartCount > 0) { %><span class="cart-count"><%= cartCount %></span><% } %>
+        </a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="container"><%- include('flash') %></div>

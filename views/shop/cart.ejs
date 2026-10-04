@@ -1,0 +1,81 @@
+<%- include('../partials/header') %>
+
+<section class="page-hero page-hero-sm">
+  <div class="container">
+    <span class="eyebrow eyebrow-line">Checkout</span>
+    <h1>Your cart</h1>
+  </div>
+</section>
+
+<section class="section section-tight">
+  <div class="container">
+    <% if (cancelled) { %>
+      <div class="flash flash-info">Checkout was cancelled — your cart is saved below.</div>
+    <% } %>
+
+    <% if (!cart.items.length) { %>
+      <div class="empty-state">
+        <img src="/img/logo.svg" alt="" width="56" height="63">
+        <h2>Your cart is empty</h2>
+        <p class="muted">Every warrior needs gear. Find something worth carrying home.</p>
+        <a class="btn btn-gold" href="/shop">Start shopping</a>
+      </div>
+    <% } else { %>
+      <div class="cart-layout">
+        <div class="cart-items">
+          <% cart.items.forEach(({ product, quantity, lineTotal }) => { %>
+            <div class="cart-item">
+              <a class="cart-thumb" href="/product/<%= product.slug %>">
+                <img src="<%= product.image || '/img/logo.svg' %>" alt="<%= product.name %>">
+              </a>
+              <div class="cart-item-info">
+                <a href="/product/<%= product.slug %>"><h3><%= product.name %></h3></a>
+                <p class="muted small"><%= money(product.price_cents) %> each<%= product.stock !== null && product.stock <= 3 ? ` · only ${product.stock} left` : '' %></p>
+                <div class="cart-item-actions">
+                  <form method="post" action="/cart/update" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <input type="hidden" name="productId" value="<%= product.id %>">
+                    <label class="sr-only" for="qty-<%= product.id %>">Quantity</label>
+                    <input class="input input-qty" id="qty-<%= product.id %>" name="quantity" type="number" min="0" max="<%= product.stock === null ? 20 : Math.min(product.stock, 20) %>" value="<%= quantity %>" data-autosubmit>
+                    <button class="btn btn-ghost btn-sm js-hide" type="submit">Update</button>
+                  </form>
+                  <form method="post" action="/cart/remove" class="inline-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <input type="hidden" name="productId" value="<%= product.id %>">
+                    <button class="link-button" type="submit">Remove</button>
+                  </form>
+                </div>
+              </div>
+              <div class="cart-item-total"><%= money(lineTotal) %></div>
+            </div>
+          <% }) %>
+        </div>
+
+        <aside class="summary">
+          <h2>Order summary</h2>
+          <dl>
+            <div><dt>Subtotal</dt><dd><%= money(cart.subtotal) %></dd></div>
+            <div><dt>Shipping</dt><dd><%= shipping === 0 ? 'Free' : money(shipping) %></dd></div>
+            <div class="summary-total"><dt>Total</dt><dd><%= money(cart.subtotal + shipping) %></dd></div>
+          </dl>
+          <% if (freeShippingRemaining > 0) { %>
+            <p class="free-ship">Add <strong><%= money(freeShippingRemaining) %></strong> more for free shipping.</p>
+          <% } %>
+          <% if (stripeEnabled) { %>
+            <form method="post" action="/checkout">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="btn btn-gold btn-lg btn-block" type="submit">Checkout securely</button>
+            </form>
+            <p class="muted small center">Enter shipping details on the next step. Powered by Stripe.</p>
+          <% } else { %>
+            <button class="btn btn-gold btn-lg btn-block" disabled>Checkout unavailable</button>
+            <p class="muted small center">Online payments are being set up. <% if (settings.contact_email) { %>Email <a class="link-gold" href="mailto:<%= settings.contact_email %>"><%= settings.contact_email %></a> to order.<% } %></p>
+          <% } %>
+          <a class="link-gold small center block" href="/shop">&larr; Continue shopping</a>
+        </aside>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<%- include('../partials/footer') %>

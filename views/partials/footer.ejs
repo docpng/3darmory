@@ -1,0 +1,37 @@
+  </main>
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="brand" href="/">
+          <img src="/img/logo.svg" alt="" width="30" height="34">
+          <span class="brand-name"><%= settings.store_name %></span>
+        </a>
+        <p class="muted"><%= settings.tagline %></p>
+      </div>
+      <div>
+        <h4>Shop</h4>
+        <ul>
+          <li><a href="/shop">All products</a></li>
+          <% categories.forEach((c) => { %><li><a href="/shop?category=<%= c.slug %>"><%= c.name %></a></li><% }) %>
+        </ul>
+      </div>
+      <div>
+        <h4>Workshop</h4>
+        <ul>
+          <li><a href="/about">About us</a></li>
+          <% if (settings.contact_email) { %><li><a href="mailto:<%= settings.contact_email %>"><%= settings.contact_email %></a></li><% } %>
+          <li><a href="/cart">Cart</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Secure checkout</h4>
+        <p class="muted small">Payments are processed securely by Stripe. We never see or store your card details.</p>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <span>&copy; <%= new Date().getFullYear() %> <%= settings.store_name %>. All rights reserved.</span>
+      <a href="/admin" class="muted small">Owner login</a>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="75%"><stop offset="0" stop-color="#2a2414"/><stop offset=".55" stop-color="#121113"/><stop offset="1" stop-color="#09090a"/></radialGradient>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbeaa8"/><stop offset=".5" stop-color="#d4af37"/><stop offset="1" stop-color="#7d5e14"/></linearGradient>
+  <linearGradient id="gd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b8922a"/><stop offset="1" stop-color="#4d3a0c"/></linearGradient>
+  <linearGradient id="k" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b2b30"/><stop offset="1" stop-color="#0e0e10"/></linearGradient>
+</defs>
+<rect width="800" height="800" fill="url(#bg)"/>
+<g stroke="#d4af37" stroke-opacity=".06"><path d="M0 40H800"/><path d="M0 80H800"/><path d="M0 120H800"/><path d="M0 160H800"/><path d="M0 200H800"/><path d="M0 240H800"/><path d="M0 280H800"/><path d="M0 320H800"/><path d="M0 360H800"/><path d="M0 400H800"/><path d="M0 440H800"/><path d="M0 480H800"/><path d="M0 520H800"/><path d="M0 560H800"/><path d="M0 600H800"/><path d="M0 640H800"/><path d="M0 680H800"/><path d="M0 720H800"/><path d="M0 760H800"/></g>
+<ellipse cx="400" cy="690" rx="230" ry="26" fill="#000" opacity=".55"/>
+<g transform="translate(400 400)">
+<path d="M-90 -270H90C90 -200 50 -170 60 -110C80 0 190 40 170 170C155 260 90 290 0 290C-90 290 -155 260 -170 170C-190 40 -80 0 -60 -110C-50 -170 -90 -200 -90 -270Z" fill="url(#k)" stroke="url(#g)" stroke-linejoin="round" stroke-width="5"/>
+<clipPath id="vc"><path d="M-90 -270H90C90 -200 50 -170 60 -110C80 0 190 40 170 170C155 260 90 290 0 290C-90 290 -155 260 -170 170C-190 40 -80 0 -60 -110C-50 -170 -90 -200 -90 -270Z"/></clipPath><g fill="none" stroke="url(#g)" stroke-width="2" opacity=".55" clip-path="url(#vc)"><path d="M-170 -40 Q0 0 170 -60"/><path d="M-170 -6 Q0 34 170 -26"/><path d="M-170 28 Q0 68 170 8"/><path d="M-170 62 Q0 102 170 42"/><path d="M-170 96 Q0 136 170 76"/><path d="M-170 130 Q0 170 170 110"/><path d="M-170 164 Q0 204 170 144"/><path d="M-170 198 Q0 238 170 178"/><path d="M-170 232 Q0 272 170 212"/><path d="M-170 266 Q0 306 170 246"/></g>
+<ellipse cx="0" cy="-270" rx="90" ry="16" fill="#0a0a0b" stroke="url(#g)" stroke-width="3" stroke-linejoin="round"/>
+</g></svg>

@@ -1,0 +1,26 @@
+<%- include('../../partials/head') %>
+<body class="admin">
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <a class="brand" href="/admin">
+        <img src="/img/logo.svg" alt="" width="30" height="34">
+        <span class="brand-name"><%= settings.store_name %></span>
+      </a>
+      <span class="admin-label">Store manager</span>
+      <nav class="admin-nav">
+        <a href="/admin" class="<%= currentPath === '/admin' ? 'active' : '' %>">Dashboard</a>
+        <a href="/admin/products" class="<%= currentPath.startsWith('/admin/products') ? 'active' : '' %>">Products</a>
+        <a href="/admin/categories" class="<%= currentPath.startsWith('/admin/categories') ? 'active' : '' %>">Categories</a>
+        <a href="/admin/orders" class="<%= currentPath.startsWith('/admin/orders') ? 'active' : '' %>">Orders</a>
+        <a href="/admin/settings" class="<%= currentPath.startsWith('/admin/settings') ? 'active' : '' %>">Site settings</a>
+      </nav>
+      <div class="admin-sidebar-foot">
+        <a href="/" target="_blank" rel="noopener">View store &nearr;</a>
+        <form method="post" action="/admin/logout">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="link-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </aside>
+    <main class="admin-main" id="main">
+      <%- include('../../partials/flash') %>

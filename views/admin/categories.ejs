@@ -1,0 +1,43 @@
+<%- include('partials/top') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Categories</h1>
+    <p class="muted">Group products into collections shown in the store menu.</p>
+  </div>
+</div>
+
+<div class="admin-columns admin-columns-wide">
+  <section class="panel panel-flush">
+    <% if (categories.length) { %>
+      <% categories.forEach((c) => { %>
+        <form class="category-row" method="post" action="/admin/categories/<%= c.id %>">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <label class="field"><span>Name</span><input class="input" name="name" value="<%= c.name %>" required maxlength="60"></label>
+          <label class="field"><span>Description</span><input class="input" name="description" value="<%= c.description %>" maxlength="300"></label>
+          <label class="field field-xs"><span>Order</span><input class="input" type="number" name="sort_order" value="<%= c.sort_order %>"></label>
+          <div class="category-row-actions">
+            <span class="muted small"><%= c.product_count %> product<%= c.product_count === 1 ? '' : 's' %></span>
+            <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+            <button class="link-button danger small" type="submit" formaction="/admin/categories/<%= c.id %>/delete" data-confirm="Delete the “<%= c.name %>” category? Its products will become uncategorised.">Delete</button>
+          </div>
+        </form>
+      <% }) %>
+    <% } else { %>
+      <p class="muted pad">No categories yet.</p>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <h2>Add category</h2>
+    <form class="form" method="post" action="/admin/categories">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <label class="field"><span>Name *</span><input class="input" name="name" required maxlength="60" placeholder="e.g. Terrain"></label>
+      <label class="field"><span>Description</span><textarea class="input" name="description" rows="3" maxlength="300"></textarea></label>
+      <label class="field"><span>Sort order</span><input class="input input-narrow" type="number" name="sort_order" value="<%= categories.length %>"></label>
+      <button class="btn btn-gold btn-block" type="submit">Add category</button>
+    </form>
+  </section>
+</div>
+
+<%- include('partials/bottom') %>

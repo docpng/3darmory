@@ -1,0 +1,56 @@
+<%- include('partials/top') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Products</h1>
+    <p class="muted"><%= products.length %> product<%= products.length === 1 ? '' : 's' %> in your catalogue.</p>
+  </div>
+  <a class="btn btn-gold" href="/admin/products/new">+ Add product</a>
+</div>
+
+<section class="panel panel-flush">
+  <% if (products.length) { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr><th></th><th>Name</th><th>Category</th><th class="num">Price</th><th class="num">Stock</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <% products.forEach((p) => { %>
+            <tr>
+              <td class="thumb-cell"><img class="thumb" src="<%= p.image || '/img/logo.svg' %>" alt=""></td>
+              <td>
+                <a href="/admin/products/<%= p.id %>/edit"><strong><%= p.name %></strong></a>
+                <% if (p.featured) { %><span class="tag">Featured</span><% } %>
+              </td>
+              <td><%= p.category_name || '—' %></td>
+              <td class="num"><%= money(p.price_cents) %></td>
+              <td class="num"><%= p.stock === null ? '∞' : p.stock %></td>
+              <td>
+                <% if (!p.active) { %><span class="status status-expired">Hidden</span>
+                <% } else if (p.stock === 0) { %><span class="status status-cancelled">Sold out</span>
+                <% } else { %><span class="status status-paid">Live</span><% } %>
+              </td>
+              <td class="actions">
+                <% if (p.active) { %><a class="link-gold small" href="/product/<%= p.slug %>" target="_blank" rel="noopener">View</a><% } %>
+                <a class="link-gold small" href="/admin/products/<%= p.id %>/edit">Edit</a>
+                <form method="post" action="/admin/products/<%= p.id %>/delete" class="inline-form" data-confirm="Delete “<%= p.name %>”? This cannot be undone.">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                  <button class="link-button danger small" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <div class="empty-state">
+      <h2>No products yet</h2>
+      <p class="muted">Add your first model, figure or trinket to start selling.</p>
+      <a class="btn btn-gold" href="/admin/products/new">Add a product</a>
+    </div>
+  <% } %>
+</section>
+
+<%- include('partials/bottom') %>

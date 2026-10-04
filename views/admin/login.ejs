@@ -1,0 +1,29 @@
+<%- include('../partials/head') %>
+<body class="admin admin-login">
+  <main class="login-card" id="main">
+    <img src="/img/logo.svg" alt="" width="56" height="63">
+    <h1><%= settings.store_name %></h1>
+    <p class="muted">Sign in to manage your store.</p>
+    <% if (!configured) { %>
+      <div class="flash flash-error">
+        Admin login is not configured. Set <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> in your environment and restart the server.
+      </div>
+    <% } %>
+    <% if (error) { %><div class="flash flash-error"><%= error %></div><% } %>
+    <form method="post" action="/admin/login" class="form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="next" value="<%= next %>">
+      <label class="field">
+        <span>Email</span>
+        <input class="input" type="email" name="email" value="<%= email %>" autocomplete="username" required autofocus>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input class="input" type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn btn-gold btn-block" type="submit">Sign in</button>
+    </form>
+    <a class="muted small" href="/">&larr; Back to store</a>
+  </main>
+</body>
+</html>

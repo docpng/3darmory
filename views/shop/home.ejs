@@ -1,0 +1,113 @@
+<%- include('../partials/header') %>
+
+<section class="hero">
+  <div class="hero-grid-bg" aria-hidden="true"></div>
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow eyebrow-line"><%= settings.tagline %></span>
+      <h1><%= settings.hero_title %></h1>
+      <p class="lead"><%= settings.hero_subtitle %></p>
+      <div class="hero-actions">
+        <a href="/shop" class="btn btn-gold btn-lg">Shop the Armory</a>
+        <a href="/about" class="btn btn-ghost btn-lg">Our workshop</a>
+      </div>
+      <dl class="hero-stats">
+        <div><dt>0.05 mm</dt><dd>layer precision</dd></div>
+        <div><dt>Hand</dt><dd>finished pieces</dd></div>
+        <div><dt>Secure</dt><dd>Stripe checkout</dd></div>
+      </dl>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="hero-glow"></div>
+      <svg class="hero-d20" viewBox="0 0 200 220">
+        <defs>
+          <linearGradient id="hg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#f8e7a1"/><stop offset=".5" stop-color="#d4af37"/><stop offset="1" stop-color="#7a5c12"/>
+          </linearGradient>
+        </defs>
+        <polygon points="100,8 186,58 186,162 100,212 14,162 14,58" fill="#111" stroke="url(#hg)" stroke-width="2.5"/>
+        <polygon points="100,52 152,142 48,142" fill="rgba(212,175,55,.08)" stroke="url(#hg)" stroke-width="2"/>
+        <g stroke="url(#hg)" stroke-width="1.4" fill="none" opacity=".85">
+          <path d="M100 8 100 52M100 8 48 142M100 8 152 142M14 58 100 52M186 58 100 52M14 58 48 142M186 58 152 142M14 162 48 142M186 162 152 142M100 212 48 142M100 212 152 142M14 58 14 162M186 58 186 162"/>
+        </g>
+        <text x="100" y="122" text-anchor="middle" font-family="Space Grotesk, sans-serif" font-weight="700" font-size="34" fill="url(#hg)">20</text>
+      </svg>
+      <div class="hero-layers"><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+  </div>
+</section>
+
+<% if (categories.length) { %>
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Collections</span>
+        <h2>Choose your arsenal</h2>
+      </div>
+    </div>
+    <div class="category-grid">
+      <% categories.forEach((c, i) => { %>
+        <a class="category-tile" href="/shop?category=<%= c.slug %>">
+          <span class="category-index">0<%= i + 1 %></span>
+          <h3><%= c.name %></h3>
+          <p><%= c.description %></p>
+          <span class="category-link">Explore <span aria-hidden="true">&rarr;</span></span>
+        </a>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<% if (featured.length) { %>
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Featured</span>
+        <h2>Pieces from the forge</h2>
+      </div>
+      <a href="/shop" class="link-gold">View all products &rarr;</a>
+    </div>
+    <div class="product-grid">
+      <% featured.forEach((product) => { %><%- include('../partials/product-card', { product }) %><% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Process</span>
+        <h2>Forged layer by layer</h2>
+      </div>
+    </div>
+    <ol class="process">
+      <li><span>01</span><h3>Design</h3><p>Every model is sculpted or tuned in-house for strength, detail and printability.</p></li>
+      <li><span>02</span><h3>Print</h3><p>Calibrated FDM and resin printers lay down hundreds of precise layers.</p></li>
+      <li><span>03</span><h3>Finish</h3><p>Supports removed, sanded, primed and hand-detailed where it counts.</p></li>
+      <li><span>04</span><h3>Ship</h3><p>Packed in protective foam and dispatched within a few business days.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="cta-band">
+      <div>
+        <h2>Have a custom piece in mind?</h2>
+        <p class="muted">Commissions, recolours, scaled-up figures, gifts — tell us what you want forged.</p>
+      </div>
+      <% if (settings.contact_email) { %>
+        <a class="btn btn-gold btn-lg" href="mailto:<%= settings.contact_email %>?subject=Custom%20order%20enquiry">Request a quote</a>
+      <% } else { %>
+        <a class="btn btn-gold btn-lg" href="/about">Get in touch</a>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<%- include('../partials/footer') %>

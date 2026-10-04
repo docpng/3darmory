@@ -1,0 +1,64 @@
+<%- include('partials/top') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="muted">Welcome back. Here's how the armory is doing.</p>
+  </div>
+  <a class="btn btn-gold" href="/admin/products/new">+ Add product</a>
+</div>
+
+<% if (!stripeConfigured || !webhookConfigured) { %>
+  <div class="notice">
+    <h3>Finish setting up payments</h3>
+    <ul>
+      <% if (!stripeConfigured) { %><li>Set <code>STRIPE_SECRET_KEY</code> to enable checkout. Until then, customers can browse but not pay.</li><% } %>
+      <% if (!webhookConfigured) { %><li>Add a Stripe webhook pointing to <code><%= baseUrl %>/webhooks/stripe</code> (events: <code>checkout.session.completed</code>, <code>checkout.session.expired</code>) and set <code>STRIPE_WEBHOOK_SECRET</code> so paid orders are recorded reliably.</li><% } %>
+    </ul>
+  </div>
+<% } %>
+
+<div class="stat-grid">
+  <div class="stat"><span class="stat-label">Revenue</span><span class="stat-value"><%= money(stats.revenue) %></span></div>
+  <div class="stat"><span class="stat-label">Paid orders</span><span class="stat-value"><%= stats.orders %></span></div>
+  <div class="stat <%= stats.toFulfil ? 'stat-alert' : '' %>"><span class="stat-label">To fulfil</span><span class="stat-value"><%= stats.toFulfil %></span></div>
+  <div class="stat"><span class="stat-label">Live products</span><span class="stat-value"><%= stats.activeProducts %><small> / <%= stats.products %></small></span></div>
+</div>
+
+<div class="admin-columns">
+  <section class="panel">
+    <div class="panel-head"><h2>Recent orders</h2><a class="link-gold small" href="/admin/orders">All orders &rarr;</a></div>
+    <% if (stats.recentOrders.length) { %>
+      <table class="table">
+        <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th class="num">Total</th></tr></thead>
+        <tbody>
+          <% stats.recentOrders.forEach((o) => { %>
+            <tr>
+              <td><a href="/admin/orders/<%= o.id %>">#<%= o.id %></a></td>
+              <td><%= o.customer_name || o.customer_email || '—' %></td>
+              <td><span class="status status-<%= o.status %>"><%= o.status %></span></td>
+              <td class="num"><%= money(o.total_cents) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } else { %>
+      <p class="muted">No orders yet. They'll appear here as soon as a customer checks out.</p>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Low stock</h2><a class="link-gold small" href="/admin/products">Products &rarr;</a></div>
+    <% if (stats.lowStock.length) { %>
+      <ul class="list">
+        <% stats.lowStock.forEach((p) => { %>
+          <li><a href="/admin/products/<%= p.id %>/edit"><%= p.name %></a><span class="status <%= p.stock === 0 ? 'status-cancelled' : 'status-pending' %>"><%= p.stock === 0 ? 'Sold out' : `${p.stock} left` %></span></li>
+        <% }) %>
+      </ul>
+    <% } else { %>
+      <p class="muted">All stocked up.</p>
+    <% } %>
+  </section>
+</div>
+
+<%- include('partials/bottom') %>
