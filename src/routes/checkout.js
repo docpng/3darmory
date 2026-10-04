@@ -1,16 +1,16 @@
-const express = require('express');
-const config = require('../config');
+import { Hono } from 'hono';
+import { notFound, render } from '../lib/render.js';
 
-const router = express.Router();
+const checkout = new Hono();
 
-function absoluteImageUrl(image) {
+function absoluteImageUrl(baseUrl, image) {
   if (!image || image.endsWith('.svg')) return null; // Stripe cannot display SVGs
-  const url = image.startsWith('http') ? image : `${config.baseUrl}${image}`;
+  const url = image.startsWith('http') ? image : `${baseUrl}${image}`;
   return url.startsWith('https://') ? url : null; // Stripe requires publicly reachable HTTPS images
 }
 
 /** Copies the customer + payment details from a Checkout Session onto our order. */
-function fulfilFromSession(store, session) {
+export function fulfilFromSession(store, session) {
   const details = session.customer_details || {};
   const shipping = session.collected_information?.shipping_details || session.shipping_details || null;
   return store.markOrderPaid(session.id, {
@@ -22,34 +22,37 @@ function fulfilFromSession(store, session) {
   });
 }
 
-router.post('/', async (req, res) => {
-  const { store, stripe } = req.app.locals;
+checkout.post('/', async (c) => {
+  const store = c.get('store');
+  const stripe = c.get('stripe');
+  const session = c.get('session');
+  const config = c.get('config');
   if (!stripe) {
-    req.flash('error', 'Online checkout is not configured yet. Please contact us to place an order.');
-    return res.redirect('/cart');
+    session.flash = { type: 'error', message: 'Online checkout is not configured yet. Please contact us to place an order.' };
+    return c.redirect('/cart');
   }
 
-  const cart = store.resolveCart(req.session.cart);
+  const cart = await store.resolveCart(session.cart);
   if (!cart.items.length) {
-    req.flash('error', 'Your cart is empty.');
-    return res.redirect('/cart');
+    session.flash = { type: 'error', message: 'Your cart is empty.' };
+    return c.redirect('/cart');
   }
 
-  const settings = store.getSettings();
+  const { settings } = c.get('locals');
   const shipping = store.shippingFor(cart.subtotal, settings);
-  const orderId = store.createPendingOrder({
+  const orderId = await store.createPendingOrder({
     items: cart.items,
     subtotal: cart.subtotal,
     shipping,
     currency: config.currency,
   });
 
-  const session = await stripe.checkout.sessions.create({
+  const checkoutSession = await stripe.checkout.sessions.create({
     mode: 'payment',
     client_reference_id: String(orderId),
     metadata: { order_id: String(orderId) },
     line_items: cart.items.map(({ product, quantity }) => {
-      const image = absoluteImageUrl(product.image);
+      const image = absoluteImageUrl(config.baseUrl, product.image);
       return {
         quantity,
         price_data: {
@@ -83,26 +86,25 @@ router.post('/', async (req, res) => {
     cancel_url: `${config.baseUrl}/cart?cancelled=1`,
   });
 
-  store.attachCheckoutSession(orderId, session.id);
-  res.redirect(303, session.url);
+  await store.attachCheckoutSession(orderId, checkoutSession.id);
+  return c.redirect(checkoutSession.url, 303);
 });
 
-router.get('/success', async (req, res, next) => {
-  const { store, stripe } = req.app.locals;
-  const sessionId = typeof req.query.session_id === 'string' ? req.query.session_id : '';
-  let order = sessionId ? store.getOrderBySession(sessionId) : null;
-  if (!stripe || !order) return next();
+checkout.get('/success', async (c) => {
+  const store = c.get('store');
+  const stripe = c.get('stripe');
+  const sessionId = c.req.query('session_id') || '';
+  let order = sessionId ? await store.getOrderBySession(sessionId) : null;
+  if (!stripe || !order) return notFound(c);
 
   // The webhook is the source of truth, but confirm here too in case it hasn't arrived yet.
   if (order.status === 'pending') {
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    if (session.payment_status === 'paid') order = fulfilFromSession(store, session);
+    const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId);
+    if (checkoutSession.payment_status === 'paid') order = await fulfilFromSession(store, checkoutSession);
   }
 
-  req.session.cart = {};
-  res.locals.cartCount = 0;
-  res.render('shop/success', { title: 'Order confirmed', order: store.getOrder(order.id) });
+  c.get('session').cart = {};
+  return render(c, 'shop/success', { title: 'Order confirmed', cartCount: 0, order: await store.getOrder(order.id) });
 });
 
-module.exports = router;
-module.exports.fulfilFromSession = fulfilFromSession;
+export default checkout;

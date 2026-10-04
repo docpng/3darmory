@@ -1,46 +1,46 @@
-const express = require('express');
+import { Hono } from 'hono';
+import { notFound, render } from '../lib/render.js';
 
-const router = express.Router();
+const shop = new Hono();
 
-router.get('/', (req, res) => {
-  const { store } = req.app.locals;
-  res.render('shop/home', {
-    featured: store.listProducts({ featured: true, limit: 8 }),
-    newest: store.listProducts({ sort: 'newest', limit: 4 }),
-  });
+shop.get('/', async (c) => {
+  const store = c.get('store');
+  const [featured, newest] = await Promise.all([
+    store.listProducts({ featured: true, limit: 8 }),
+    store.listProducts({ sort: 'newest', limit: 4 }),
+  ]);
+  return render(c, 'shop/home', { featured, newest });
 });
 
-router.get('/shop', (req, res) => {
-  const { store } = req.app.locals;
-  const category = typeof req.query.category === 'string' ? req.query.category : '';
-  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
-  const sort = typeof req.query.sort === 'string' ? req.query.sort : 'newest';
-  const activeCategory = category ? store.getCategoryBySlug(category) : null;
-  res.render('shop/catalog', {
+shop.get('/shop', async (c) => {
+  const store = c.get('store');
+  const category = c.req.query('category') || '';
+  const q = (c.req.query('q') || '').trim().slice(0, 100);
+  const sort = c.req.query('sort') || 'newest';
+  const activeCategory = category ? await store.getCategoryBySlug(category) : null;
+  return render(c, 'shop/catalog', {
     title: activeCategory ? activeCategory.name : 'Shop',
-    products: store.listProducts({ category: activeCategory?.slug, q, sort }),
+    products: await store.listProducts({ category: activeCategory?.slug, q, sort }),
     activeCategory,
     q,
     sort,
   });
 });
 
-router.get('/product/:slug', (req, res, next) => {
-  const { store } = req.app.locals;
-  const product = store.getProductBySlug(req.params.slug);
-  if (!product) return next();
-  res.render('shop/product', {
+shop.get('/product/:slug', async (c) => {
+  const store = c.get('store');
+  const product = await store.getProductBySlug(c.req.param('slug'));
+  if (!product) return notFound(c);
+  return render(c, 'shop/product', {
     title: product.name,
     description: product.description.slice(0, 160),
     product,
     available: store.isAvailable(product),
     maxQty: store.maxQuantity(product),
-    related: store.relatedProducts(product),
+    related: await store.relatedProducts(product),
   });
 });
 
-router.get('/about', (req, res) => {
-  res.render('shop/about', { title: 'About' });
-});
+shop.get('/about', (c) => render(c, 'shop/about', { title: 'About' }));
 
-module.exports = router;
+export default shop;

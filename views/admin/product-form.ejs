@@ -14,7 +14,8 @@
 <% } %>
 
 <form class="form product-form" method="post" enctype="multipart/form-data"
-      action="<%= isNew ? '/admin/products' : `/admin/products/${product.id}` %>?_csrf=<%= csrfToken %>">
+      action="<%= isNew ? '/admin/products' : `/admin/products/${product.id}` %>">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
   <div class="form-main">
     <section class="panel">
       <h2>Details</h2>

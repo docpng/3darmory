@@ -1,12 +1,17 @@
 {
   "name": "3darmory",
   "version": "1.0.0",
-  "description": "3D Armory — online store for 3D printed models, figures and trinkets, with an admin CMS and Stripe checkout.",
-  "main": "server.js",
+  "description": "3D Armory — online store for 3D printed models, figures and trinkets, with an admin CMS and Stripe checkout. Runs on Cloudflare Workers.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "node --test test/*.test.js"
+    "build": "node scripts/build-views.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:seed:local": "wrangler d1 execute DB --local --file seed/demo.sql",
+    "db:seed:remote": "wrangler d1 execute DB --remote --file seed/demo.sql",
+    "setup": "npm run db:migrate:local && npm run db:seed:local",
+    "test": "npm run build && vitest run"
   },
   "repository": {
     "type": "git",
@@ -19,19 +24,21 @@
   },
   "homepage": "https://github.com/docpng/3darmory#readme",
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
-    "cookie-session": "^2.1.1",
-    "dotenv": "^18.0.5",
-    "ejs": "^6.0.1",
-    "express": "^5.2.1",
-    "multer": "^2.4.0",
+    "hono": "^4.13.13",
     "stripe": "^23.0.0"
-  },
-  "devDependencies": {
-    "supertest": "^7.3.1"
   },
   "private": true,
   "engines": {
     "node": ">=20"
-  }
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "ejs": "^7.0.1",
+    "vitest": "4.1.11",
+    "wrangler": "^4.147.0",
+    "@vitest/runner": "4.1.11",
+    "@vitest/snapshot": "4.1.11",
+    "vite": "^7.3.6"
+  },
+  "type": "module"
 }

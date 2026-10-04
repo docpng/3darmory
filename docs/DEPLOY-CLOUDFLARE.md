@@ -1,71 +1,57 @@
-# Testing 3D Armory on Cloudflare
+# Deploying 3D Armory to Cloudflare
 
-This guide puts your store on a public **HTTPS** address through Cloudflare so you can test it from your phone, share it with friends and run real Stripe test payments, all without renting a server.
+3D Armory runs entirely on Cloudflare:
 
-## How it works (and why not Workers or Pages)
+| Piece | Cloudflare product | What it stores / does |
+| --- | --- | --- |
+| The store itself | **Workers** | Runs every page, the cart, checkout and the admin CMS |
+| CSS, JS, logo, demo artwork | **Workers static assets** | Served from Cloudflare's edge, no extra setup |
+| Products, categories, orders, settings | **D1** (SQLite database) | Binding `DB` |
+| Uploaded product photos | **R2** (file storage) | Binding `IMAGES` |
 
-3D Armory is a Node.js server that saves products, orders and uploaded images to disk in a SQLite database. **Cloudflare Workers and Pages can't run it as-is.** They have no local disk, and the database library (`better-sqlite3`) is native code they don't support.
+The free plans for Workers, D1 and R2 easily cover a small store. Enabling R2 requires a payment method on your Cloudflare account, even if you stay inside the free tier.
 
-Instead we use **Cloudflare Tunnel**. The app runs on your own computer (or any small server), and Cloudflare gives it a secure public URL:
-
-```
-Visitor ──HTTPS──▶ Cloudflare ──tunnel──▶ cloudflared on your machine ──▶ http://localhost:3000 (3D Armory)
-```
-
-There are no open ports or router changes, and HTTPS is handled for you. Your computer must stay on while people are testing.
+You'll need [Node.js](https://nodejs.org) 20 or newer and a free [Cloudflare account](https://dash.cloudflare.com/sign-up). All commands are run from the project folder. In IntelliJ, use the built-in **Terminal**.
 
 ---
 
-## Option A: Quick tunnel (5 minutes, no Cloudflare account)
-
-Best for a quick test. You get a random `https://something.trycloudflare.com` address that changes every time you restart the tunnel.
-
-### 1. Install the app
-
-Requires [Node.js](https://nodejs.org) 20 or newer.
+## 1. Install and log in
 
 ```bash
-git clone https://github.com/docpng/3darmory.git
-cd 3darmory
 npm install
-cp .env.example .env
+npx wrangler login          # opens your browser to connect Wrangler to your Cloudflare account
 ```
 
-### 2. Install `cloudflared`
-
-| System | Command |
-| --- | --- |
-| macOS | `brew install cloudflared` |
-| Windows | `winget install --id Cloudflare.cloudflared` |
-| Debian/Ubuntu | Download the `.deb` from the [cloudflared releases page](https://github.com/cloudflare/cloudflared/releases/latest) and run `sudo dpkg -i cloudflared-linux-amd64.deb` |
-
-### 3. Start the tunnel
-
-In its own terminal window:
+## 2. Create the database and image bucket
 
 ```bash
-cloudflared tunnel --url http://localhost:3000
+npx wrangler d1 create 3darmory
+npx wrangler r2 bucket create 3darmory-images
 ```
 
-After a few seconds it prints something like:
+`d1 create` prints a `database_id`. Open **`wrangler.jsonc`** and paste it in place of `REPLACE_WITH_YOUR_D1_DATABASE_ID`.
 
+While you're in `wrangler.jsonc`, also check the `vars` section:
+
+- `ADMIN_EMAIL`: the email you'll use to sign in to `/admin`
+- `CURRENCY`: `usd`, `gbp`, `eur`, `aud`, and so on
+- `SHIPPING_COUNTRIES`: the countries you ship to, as comma-separated codes
+
+## 3. Set up the database tables
+
+```bash
+npm run db:migrate:remote   # creates the tables + default site settings
+npm run db:seed:remote      # optional: loads the 8 demo products (skip it to start empty)
 ```
-Your quick Tunnel has been created! Visit it at:
-https://brave-golden-forge-example.trycloudflare.com
-```
 
-Copy that address and leave the window open.
+## 4. Add your secrets
 
-### 4. Configure `.env`
+Each command asks you to paste a value. Secrets are stored encrypted by Cloudflare and never go in git.
 
-Open `.env` and set at least:
-
-```ini
-BASE_URL=https://brave-golden-forge-example.trycloudflare.com   # your tunnel address, no trailing slash
-SESSION_SECRET=paste-a-long-random-string-here
-ADMIN_EMAIL=you@example.com
-ADMIN_PASSWORD=pick-a-strong-password
-STRIPE_SECRET_KEY=sk_test_...     # Stripe dashboard → Developers → API keys (Test mode)
+```bash
+npx wrangler secret put SESSION_SECRET         # a long random string (see below)
+npx wrangler secret put ADMIN_PASSWORD         # your admin password
+npx wrangler secret put STRIPE_SECRET_KEY      # sk_test_… while testing, sk_live_… when you go live
 ```
 
 To generate a `SESSION_SECRET`:
@@ -74,78 +60,67 @@ To generate a `SESSION_SECRET`:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-> Always use **test mode** keys (`sk_test_…`) while testing. No real money moves.
-
-### 5. Start the store
-
-In a second terminal window:
+## 5. Deploy
 
 ```bash
-NODE_ENV=production npm start
+npm run deploy
 ```
 
-On Windows PowerShell:
+Wrangler prints your store's address, something like `https://3darmory.<your-subdomain>.workers.dev`. Open it to see the store, and go to `/admin` to sign in.
 
-```powershell
-$env:NODE_ENV="production"; npm start
-```
+## 6. Connect Stripe (payment confirmations)
 
-Open your tunnel address. You should see the store. Sign in to the admin at `https://<your-tunnel>/admin`.
+Stripe uses a webhook to tell your store that an order has been paid.
 
-### 6. Connect the Stripe webhook
-
-The webhook is how Stripe tells your store that an order has been paid. Choose one way:
-
-**Option 1: Stripe CLI (easiest, nothing to update when the URL changes)**
-
-```bash
-stripe login
-stripe listen --forward-to localhost:3000/webhooks/stripe
-```
-
-Copy the `whsec_…` value it prints into `STRIPE_WEBHOOK_SECRET` in `.env`, restart the store, and keep `stripe listen` running while you test.
-
-**Option 2: Stripe dashboard**
-
-1. Stripe dashboard (Test mode) → *Developers → Webhooks → Add endpoint*.
-2. Endpoint URL: `https://<your-tunnel>/webhooks/stripe`
+1. Stripe dashboard (start in **Test mode**) → *Developers → Webhooks → Add endpoint*.
+2. Endpoint URL: `https://<your-store-address>/webhooks/stripe`
 3. Events: `checkout.session.completed`, `checkout.session.expired`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`
-4. Copy the endpoint's signing secret into `STRIPE_WEBHOOK_SECRET` and restart the store.
+4. Copy the endpoint's signing secret (`whsec_…`) and save it:
 
-### 7. Place a test order
+   ```bash
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+   ```
 
-1. Add something to the cart and click **Checkout securely**.
-2. Pay with card `4242 4242 4242 4242`, any future expiry date, any CVC and any postcode.
-3. You land on the order confirmation page. The order appears under **Admin → Orders** as *paid*, and that product's stock goes down.
-
-### Each time you restart the quick tunnel
-
-The `trycloudflare.com` address changes, so:
-
-1. Update `BASE_URL` in `.env` and restart the store.
-2. If you used the Stripe dashboard webhook (Option 2), update its URL too.
-
-If that gets tedious, use Option B.
+**Place a test order:** add something to the cart, check out, and pay with card `4242 4242 4242 4242`, any future expiry date and any CVC. The order shows up under **Admin → Orders** as *paid*, and that product's stock goes down.
 
 ---
 
-## Option B: Named tunnel on your own domain (stable URL)
+## Using your own domain
 
-You'll need a free Cloudflare account and a domain whose DNS is managed by Cloudflare. Your store then stays at a fixed address such as `https://shop.3darmory.com`.
+Workers dashboard → your `3darmory` Worker → **Settings → Domains & Routes → Add → Custom domain**, then enter something like `shop.3darmory.com`. The domain's DNS must be managed by Cloudflare. HTTPS is automatic.
+
+Then update the Stripe webhook URL to the new domain. Links in Stripe emails and redirects use whichever address the customer visited, so you don't need to change any other setting. (To force one address, add `"BASE_URL": "https://shop.3darmory.com"` to `vars` in `wrangler.jsonc`.)
+
+## Automatic deploys from GitHub (optional)
+
+Workers dashboard → your Worker → **Settings → Builds → Connect** → choose the `docpng/3darmory` repository and the `main` branch. Keep the default deploy command (`npx wrangler deploy`). Every push to `main` then redeploys the store. Secrets and the database are kept between deploys.
+
+If you add a new file to `migrations/` later, run `npm run db:migrate:remote` once to apply it.
+
+---
+
+## Running it locally (IntelliJ or any terminal)
+
+Everything runs on your machine with a local copy of D1 and R2. No Cloudflare account is needed for this part.
 
 ```bash
-cloudflared tunnel login                                      # opens a browser; pick your domain
-cloudflared tunnel create 3darmory                            # creates the tunnel and a credentials file
-cloudflared tunnel route dns 3darmory shop.3darmory.com       # points the hostname at the tunnel
-cloudflared tunnel run --url http://localhost:3000 3darmory   # start it (keep running)
+npm install
+cp .dev.vars.example .dev.vars    # then fill in SESSION_SECRET and ADMIN_PASSWORD (Stripe keys optional)
+npm run setup                     # creates the local database and loads the demo products
+npm run dev                       # http://localhost:8787
 ```
 
-Then set `BASE_URL=https://shop.3darmory.com` in `.env`, restart the store, and point your Stripe webhook at `https://shop.3darmory.com/webhooks/stripe`.
+In IntelliJ, open `package.json` and click ▶ next to `setup` (first time only), then ▶ next to `dev`. `dev` reloads automatically when you save a file. Use **Debug** instead of Run to stop at breakpoints.
 
-Tips:
+To test payments locally, put your `sk_test_…` key in `.dev.vars`, then run:
 
-- You can also create and manage the tunnel from the Cloudflare dashboard under **Zero Trust → Networks → Tunnels**. It gives you an install command with a token, and you add a *public hostname* pointing to `http://localhost:3000`.
-- To keep the tunnel running after reboots, install it as a service with `sudo cloudflared service install`. See Cloudflare's docs for your operating system.
+```bash
+stripe listen --forward-to localhost:8787/webhooks/stripe
+```
+
+Copy the `whsec_…` value it prints into `STRIPE_WEBHOOK_SECRET` in `.dev.vars`, and restart `npm run dev`.
+
+The local database and uploaded images are stored in `.wrangler/` (git ignores that folder). To start fresh, delete `.wrangler/` and run `npm run setup` again.
 
 ---
 
@@ -153,13 +128,19 @@ Tips:
 
 | Symptom | Fix |
 | --- | --- |
-| "Session expired" when submitting any form, or you can't stay logged in | You're running with `NODE_ENV=production` but opening the site over plain `http://` (for example `http://localhost:3000`). Production mode only sends login cookies over HTTPS. Use the tunnel's `https://` address, or run plain `npm start` (without `NODE_ENV=production`) for local-only testing. |
-| After paying, Stripe sends you to the wrong site or a dead link | `BASE_URL` doesn't match the tunnel address. Update it and restart the store. |
-| Orders stay "pending" | The webhook isn't reaching the store. Check `STRIPE_WEBHOOK_SECRET`, check that `stripe listen` is running (Option 1) or that the endpoint URL is correct (Option 2), and look under *Developers → Webhooks* in Stripe for failed deliveries. Orders are also confirmed when the customer reaches the success page. |
-| Checkout button says "Checkout unavailable" | `STRIPE_SECRET_KEY` isn't set. Add it and restart. |
-| Admin login says it isn't configured | Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` and restart. |
-| Product images don't appear on the Stripe payment page | Stripe only shows images with public HTTPS URLs, so check that `BASE_URL` is your `https://` tunnel address. The demo SVG artwork never appears there; upload JPG, PNG or WebP photos. |
+| Page says "The database has not been set up yet" | Run `npm run db:migrate:remote` (deployed site) or `npm run db:migrate:local` (local). |
+| "SESSION_SECRET is not configured" | `npx wrangler secret put SESSION_SECRET` (deployed), or add it to `.dev.vars` (local). |
+| Admin login says it isn't configured | Set `ADMIN_EMAIL` in `wrangler.jsonc` and the `ADMIN_PASSWORD` secret. |
+| "Checkout unavailable" button | `STRIPE_SECRET_KEY` isn't set. Add the secret; there's no need to redeploy. |
+| Orders stay "pending" | The webhook isn't reaching the store. Check the endpoint URL and `STRIPE_WEBHOOK_SECRET`, and look for failed deliveries under *Developers → Webhooks* in Stripe. Orders are also confirmed when the customer reaches the success page. |
+| `wrangler deploy` complains about the database id | Paste the id from `npx wrangler d1 create 3darmory` into `wrangler.jsonc`. To find it later, run `npx wrangler d1 list`. |
+| Product photos don't appear on the Stripe payment page | Stripe only shows JPG/PNG/WebP photos over HTTPS. The demo SVG artwork never appears there; upload real photos in the admin. |
+| Changed a template in `views/` but nothing changed | `npm run dev` and `npm run deploy` rebuild templates automatically. If you run Wrangler another way, run `npm run build` first. |
 
-## When you're ready to go live
+## Logs
 
-A tunnel from your own computer is great for testing, but the store goes offline whenever the computer sleeps. For a real launch, run the app on an always-on host with a persistent disk (see **Deploying** in the main README). You can keep Cloudflare in front of it for DNS and HTTPS. Then swap your Stripe test keys for live keys (`sk_live_…`) and create a live-mode webhook.
+```bash
+npx wrangler tail          # live logs from the deployed store
+```
+
+Logs are also in the dashboard: your Worker → **Observability**.

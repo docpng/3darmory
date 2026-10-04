@@ -1,8 +1,8 @@
 # 3D Armory
 
-Online store for **3D Armory**: 3D printed models, figures and trinkets. It has a modern black & gold storefront, an admin CMS for the owner, and checkout through **Stripe**.
+Online store for **3D Armory**: 3D printed models, figures and trinkets. It has a modern black & gold storefront, an admin CMS for the owner, and checkout through **Stripe**. It runs on **Cloudflare Workers**.
 
-![Stack](https://img.shields.io/badge/stack-Node%20%7C%20Express%20%7C%20SQLite%20%7C%20Stripe-d4af37?labelColor=0b0b0c)
+![Stack](https://img.shields.io/badge/stack-Cloudflare%20Workers%20%7C%20D1%20%7C%20R2%20%7C%20Hono%20%7C%20Stripe-d4af37?labelColor=0b0b0c)
 
 ## Features
 
@@ -25,88 +25,73 @@ Online store for **3D Armory**: 3D printed models, figures and trinkets. It has 
 - Prices are always read from the database on the server, so customers cannot change them
 - Stripe webhook signature verification, with order fulfilment that stays correct if Stripe sends the same event twice
 - CSRF protection on every form, signed session cookies, login rate limiting, and a strict Content Security Policy
-- Uploads must be JPG, PNG, WebP or GIF, up to 8 MB, and get random file names
+- Uploads must be JPG, PNG, WebP or GIF (checked against the file's actual bytes), up to 8 MB, and get random file names
 
-## Quick start
+## Quick start (local)
 
-Requires Node.js 20 or newer.
+Requires Node.js 20 or newer. No Cloudflare account is needed to run it locally.
 
 ```bash
 npm install
-cp .env.example .env      # then fill in the values (see below)
-npm run dev               # http://localhost:3000
+cp .dev.vars.example .dev.vars   # set SESSION_SECRET and ADMIN_PASSWORD (Stripe keys optional)
+npm run setup                    # creates the local database + demo products
+npm run dev                      # http://localhost:8787
 ```
 
-On first start, the store fills itself with demo products and categories. Delete them from the admin panel, or set `SEED_DEMO_DATA=false` before the first run to start with an empty catalogue.
-
-To open the admin panel, go to **/admin** (there is also an "Owner login" link in the footer) and sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
-
-## Configuration (`.env`)
-
-| Variable | Description |
-| --- | --- |
-| `BASE_URL` | Public URL of the site, such as `https://3darmory.com`. Stripe redirects back to this URL. |
-| `SESSION_SECRET` | Long random string used to sign cookies. **Required in production.** |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin login details. |
-| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_test_…` for testing, `sk_live_…` for real payments). |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret of your Stripe webhook endpoint (`whsec_…`). |
-| `CURRENCY` | Currency for all prices (default `usd`). |
-| `SHIPPING_COUNTRIES` | Countries you ship to, as comma-separated ISO codes (default `US,CA`). |
-| `DATA_DIR` | Folder for the SQLite database and uploaded images (default `./data`). |
-
-## Setting up Stripe
-
-1. Create a Stripe account and copy your **secret key** from *Developers → API keys* into `STRIPE_SECRET_KEY`.
-2. Add a webhook endpoint at *Developers → Webhooks* that points to `https://YOUR-DOMAIN/webhooks/stripe` and listens for:
-   - `checkout.session.completed`
-   - `checkout.session.expired`
-   - `checkout.session.async_payment_succeeded`
-   - `checkout.session.async_payment_failed`
-3. Copy the endpoint's **signing secret** into `STRIPE_WEBHOOK_SECRET`.
-
-To test locally, use the [Stripe CLI](https://docs.stripe.com/stripe-cli):
-
-```bash
-stripe listen --forward-to localhost:3000/webhooks/stripe   # prints a whsec_… secret for .env
-```
-
-Then pay with the test card `4242 4242 4242 4242`, any future expiry date and any CVC.
-
-Paid orders appear under **Admin → Orders**, and stock goes down automatically.
+To open the admin panel, go to **/admin** (there is also an "Owner login" link in the footer) and sign in with `ADMIN_EMAIL` (in `wrangler.jsonc`) and `ADMIN_PASSWORD`.
 
 ## Deploying
 
-> **Testing on Cloudflare?** See [docs/DEPLOY-CLOUDFLARE.md](docs/DEPLOY-CLOUDFLARE.md) for a step-by-step guide to giving the store a public HTTPS address with Cloudflare Tunnel, including Stripe test payments.
-
-The app is a single Node process. Deploy it to any host that offers a **persistent disk**, such as Render, Railway, Fly.io or a VPS, and point `DATA_DIR` at that disk so your products, orders and uploaded images survive restarts and redeploys.
+**See [docs/DEPLOY-CLOUDFLARE.md](docs/DEPLOY-CLOUDFLARE.md)** for step-by-step instructions. In short:
 
 ```bash
-NODE_ENV=production npm start
+npx wrangler login
+npx wrangler d1 create 3darmory              # paste the id into wrangler.jsonc
+npx wrangler r2 bucket create 3darmory-images
+npm run db:migrate:remote && npm run db:seed:remote
+npx wrangler secret put SESSION_SECRET       # and ADMIN_PASSWORD, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+npm run deploy
 ```
 
-Or use Docker:
+Then add a Stripe webhook pointing to `https://<your-store>/webhooks/stripe`. The guide lists the events to select.
 
-```bash
-docker build -t 3darmory .
-docker run -p 3000:3000 -v armory-data:/data --env-file .env 3darmory
-```
+## Configuration
 
-Serve the site over HTTPS in production. Session cookies are marked `secure`, and Stripe only shows product images that have HTTPS URLs.
+| Setting | Where | Description |
+| --- | --- | --- |
+| `ADMIN_EMAIL` | `vars` in `wrangler.jsonc` | Admin login email |
+| `CURRENCY` | `vars` | Currency for all prices (default `usd`) |
+| `SHIPPING_COUNTRIES` | `vars` | Countries you ship to, as comma-separated ISO codes (default `US,CA`) |
+| `BASE_URL` | `vars` (optional) | Forces the public URL used for Stripe redirects. By default the address the customer visited is used |
+| `SESSION_SECRET` | secret | Long random string used to sign cookies |
+| `ADMIN_PASSWORD` | secret | Admin login password |
+| `STRIPE_SECRET_KEY` | secret | `sk_test_…` for testing, `sk_live_…` for real payments |
+| `STRIPE_WEBHOOK_SECRET` | secret | Signing secret of your Stripe webhook endpoint |
+
+Set secrets with `npx wrangler secret put NAME` for the deployed site, or in `.dev.vars` locally.
+
+Store text, the announcement bar and shipping rates are edited in **Admin → Site settings**, not in config.
 
 ## Development
 
 ```bash
-npm test     # runs the test suite (node:test + supertest, Stripe API mocked)
+npm test          # Vitest, running inside the real Workers runtime with local D1 + R2 (Stripe API mocked)
+npm run build     # recompile EJS templates (dev, deploy and test do this automatically)
 ```
+
+Templates are normal EJS files in `views/`. Cloudflare Workers don't allow code to be generated at runtime, so `scripts/build-views.mjs` precompiles them into `src/generated/views.js` before every dev run, deploy and test.
 
 Project layout:
 
 ```
-server.js            entry point
-src/app.js           Express app, security headers, sessions, CSRF
-src/db.js            SQLite schema, default settings, demo data
-src/lib/store.js     data access (products, categories, cart, orders, settings)
-src/routes/          shop, cart, checkout, webhooks, admin
-views/               EJS templates (storefront + admin)
-public/              CSS, JS, logo and demo product artwork
+wrangler.jsonc           Cloudflare config: D1, R2, static assets, vars
+src/index.js             Worker entry: Hono app, security headers, session, CSRF, error pages
+src/lib/store.js         data access on D1 (products, categories, cart, orders, settings)
+src/lib/images.js        product image upload/serving with R2
+src/routes/              shop, cart, checkout, webhooks, admin
+views/                   EJS templates (storefront + admin)
+public/                  CSS, JS, logo and demo product artwork (served as static assets)
+migrations/              D1 schema migrations
+seed/demo.sql            optional demo catalogue
+test/                    Vitest suite
 ```
