@@ -1,0 +1,15 @@
+# Local secrets for `npm run dev` (wrangler dev). Copy to .dev.vars — it is git-ignored.
+# In production set each of these with: npx wrangler secret put NAME
+
+# Long random string used to sign session cookies.
+# Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+SESSION_SECRET=
+
+# Admin (CMS) password. The admin email is ADMIN_EMAIL in wrangler.jsonc (you can override it here).
+ADMIN_PASSWORD=
+# ADMIN_EMAIL=you@example.com
+
+# Stripe test keys — https://dashboard.stripe.com/test/apikeys
+STRIPE_SECRET_KEY=
+# From `stripe listen --forward-to localhost:8787/webhooks/stripe`
+STRIPE_WEBHOOK_SECRET=

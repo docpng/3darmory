@@ -1,24 +1,11 @@
-const { test, before } = require('node:test');
-const assert = require('node:assert/strict');
-const os = require('node:os');
-const fs = require('node:fs');
-const path = require('node:path');
+import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import { describe, it, expect } from 'vitest';
+import Stripe from 'stripe';
+import { createApp } from '../src/index.js';
+import views from '../src/generated/views.js';
+import { renderTemplate } from '../src/lib/render.js';
 
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'armory-test-'));
-Object.assign(process.env, {
-  NODE_ENV: 'test',
-  DATA_DIR: dataDir,
-  ADMIN_EMAIL: 'owner@example.com',
-  ADMIN_PASSWORD: 'correct horse',
-  STRIPE_WEBHOOK_SECRET: 'whsec_test_secret',
-  BASE_URL: 'https://shop.example.com',
-});
-
-const request = require('supertest');
-const Stripe = require('stripe');
-const { createApp } = require('../src/app');
-const { openDatabase } = require('../src/db');
-
+const BASE = 'https://shop.example.com';
 const realStripe = new Stripe('sk_test_dummy');
 const createdSessions = [];
 const fakeStripe = {
@@ -37,228 +24,261 @@ const fakeStripe = {
   },
 };
 
-let app;
-let db;
+const app = createApp({ createStripe: () => fakeStripe });
+const testEnv = () => ({ ...env, STRIPE_SECRET_KEY: 'sk_test_dummy' });
 
-before(() => {
-  db = openDatabase(':memory:');
-  app = createApp({ db, stripe: fakeStripe, seed: true });
-});
+async function call(path, init = {}) {
+  const ctx = createExecutionContext();
+  const res = await app.fetch(new Request(BASE + path, { redirect: 'manual', ...init }), testEnv(), ctx);
+  await waitOnExecutionContext(ctx);
+  return res;
+}
 
-async function csrfFrom(agent, url) {
-  const res = await agent.get(url);
-  const match = res.text.match(/name="_csrf" value="([a-f0-9]+)"/) || res.text.match(/_csrf=([a-f0-9]+)/);
-  assert.ok(match, `no CSRF token found on ${url}`);
-  return match[1];
+/** Minimal cookie-keeping client, like a browser session. */
+function agent() {
+  const jar = new Map();
+  const request = async (path, init = {}) => {
+    const headers = new Headers(init.headers);
+    if (jar.size) headers.set('cookie', [...jar].map(([k, v]) => `${k}=${v}`).join('; '));
+    const res = await call(path, { ...init, headers });
+    for (const cookie of res.headers.getSetCookie()) {
+      const [pair] = cookie.split(';');
+      const i = pair.indexOf('=');
+      jar.set(pair.slice(0, i), pair.slice(i + 1));
+    }
+    return res;
+  };
+  return {
+    get: (path) => request(path),
+    post: (path, body) => request(path, { method: 'POST', body }),
+    form: (path, fields) => request(path, { method: 'POST', body: new URLSearchParams(fields) }),
+    async text(path) {
+      return (await request(path)).text();
+    },
+    async csrf(path) {
+      const html = await (await request(path)).text();
+      const match = html.match(/name="_csrf" value="([a-f0-9]+)"/);
+      expect(match, `no CSRF token on ${path}`).toBeTruthy();
+      return match[1];
+    },
+  };
 }
 
 async function adminAgent() {
-  const agent = request.agent(app);
-  const token = await csrfFrom(agent, '/admin/login');
-  const res = await agent
-    .post('/admin/login')
-    .type('form')
-    .send({ _csrf: token, email: 'owner@example.com', password: 'correct horse' });
-  assert.equal(res.status, 302);
-  assert.equal(res.headers.location, '/admin');
-  return agent;
+  const a = agent();
+  const token = await a.csrf('/admin/login');
+  const res = await a.form('/admin/login', { _csrf: token, email: 'owner@example.com', password: 'correct horse' });
+  expect(res.status).toBe(302);
+  expect(res.headers.get('location')).toBe('/admin');
+  return a;
 }
 
-const productBySlug = (slug) => db.prepare('SELECT * FROM products WHERE slug = ?').get(slug);
+const productBySlug = (slug) => env.DB.prepare('SELECT * FROM products WHERE slug = ?').bind(slug).first();
 
-test('storefront pages render with seeded products', async () => {
-  const home = await request(app).get('/');
-  assert.equal(home.status, 200);
-  assert.match(home.text, /3D Armory/);
-  assert.match(home.text, /Obsidian Dragon Bust/);
+describe('storefront', () => {
+  it('renders pages with seeded products', async () => {
+    const home = await call('/');
+    expect(home.status).toBe(200);
+    const html = await home.text();
+    expect(html).toContain('3D Armory');
+    expect(html).toContain('Obsidian Dragon Bust');
+    expect(home.headers.get('content-security-policy')).toContain("script-src 'self'");
 
-  const shop = await request(app).get('/shop?category=trinkets');
-  assert.equal(shop.status, 200);
-  assert.match(shop.text, /Gilded D20 Dice/);
-  assert.doesNotMatch(shop.text, /Obsidian Dragon Bust/);
+    const shop = await (await call('/shop?category=trinkets')).text();
+    expect(shop).toContain('Gilded D20 Dice');
+    expect(shop).not.toContain('Obsidian Dragon Bust');
 
-  const search = await request(app).get('/shop?q=dragon');
-  assert.match(search.text, /Obsidian Dragon Bust/);
+    expect(await (await call('/shop?q=dragon')).text()).toContain('Obsidian Dragon Bust');
 
-  const product = await request(app).get('/product/gilded-d20-dice');
-  assert.equal(product.status, 200);
-  assert.match(product.text, /\$12\.99/);
+    const product = await call('/product/gilded-d20-dice');
+    expect(product.status).toBe(200);
+    expect(await product.text()).toContain('$12.99');
 
-  assert.equal((await request(app).get('/product/does-not-exist')).status, 404);
-});
-
-test('POST requests without a CSRF token are rejected', async () => {
-  const res = await request(app).post('/cart/add').type('form').send({ productId: 1 });
-  assert.equal(res.status, 403);
-});
-
-test('cart clamps quantities to available stock and ignores sold-out items', async () => {
-  const agent = request.agent(app);
-  const token = await csrfFrom(agent, '/product/gilded-d20-dice');
-  const dice = productBySlug('gilded-d20-dice');
-  const vase = productBySlug('spiral-vortex-vase'); // seeded with stock 0
-
-  await agent.post('/cart/add').type('form').send({ _csrf: token, productId: dice.id, quantity: 500 });
-  const soldOut = await agent.post('/cart/add').type('form').send({ _csrf: token, productId: vase.id });
-  assert.equal(soldOut.status, 302);
-
-  const cart = await agent.get('/cart');
-  assert.match(cart.text, /Gilded D20 Dice/);
-  assert.doesNotMatch(cart.text, /Spiral Vortex Vase/);
-  assert.match(cart.text, /value="20"/); // capped at 20 per item
-});
-
-test('admin area requires login', async () => {
-  const res = await request(app).get('/admin/products');
-  assert.equal(res.status, 302);
-  assert.match(res.headers.location, /^\/admin\/login/);
-
-  const agent = request.agent(app);
-  const token = await csrfFrom(agent, '/admin/login');
-  const bad = await agent.post('/admin/login').type('form').send({ _csrf: token, email: 'owner@example.com', password: 'nope' });
-  assert.equal(bad.status, 401);
-});
-
-test('admin can create, edit and delete a product with an image', async () => {
-  const agent = await adminAgent();
-  const token = await csrfFrom(agent, '/admin/products/new');
-  const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64',
-  );
-
-  const created = await agent
-    .post(`/admin/products?_csrf=${token}`)
-    .field('name', 'Mini Wyvern')
-    .field('description', 'A tiny wyvern.')
-    .field('price', '19.50')
-    .field('track_stock', 'on')
-    .field('stock', '4')
-    .field('active', 'on')
-    .attach('image', png, { filename: 'wyvern.png', contentType: 'image/png' });
-  assert.equal(created.status, 302);
-
-  const product = productBySlug('mini-wyvern');
-  assert.equal(product.price_cents, 1950);
-  assert.equal(product.stock, 4);
-  assert.match(product.image, /^\/uploads\/[a-f0-9]+\.png$/);
-  assert.ok(fs.existsSync(path.join(dataDir, 'uploads', path.basename(product.image))));
-  assert.equal((await request(app).get(product.image)).status, 200);
-
-  const page = await request(app).get('/product/mini-wyvern');
-  assert.match(page.text, /\$19\.50/);
-
-  const edited = await agent
-    .post(`/admin/products/${product.id}?_csrf=${token}`)
-    .field('name', 'Mini Wyvern')
-    .field('price', '21')
-    .field('active', 'on');
-  assert.equal(edited.status, 302);
-  const updated = productBySlug('mini-wyvern');
-  assert.equal(updated.price_cents, 2100);
-  assert.equal(updated.stock, null); // stock tracking switched off => made to order
-  assert.equal(updated.image, product.image); // image kept
-
-  const invalid = await agent.post(`/admin/products/${product.id}?_csrf=${token}`).field('name', '').field('price', 'abc');
-  assert.equal(invalid.status, 422);
-
-  const del = await agent.post(`/admin/products/${product.id}/delete`).type('form').send({ _csrf: token });
-  assert.equal(del.status, 302);
-  assert.equal(productBySlug('mini-wyvern'), undefined);
-});
-
-test('admin can update site settings', async () => {
-  const agent = await adminAgent();
-  const token = await csrfFrom(agent, '/admin/settings');
-  const res = await agent.post('/admin/settings').type('form').send({
-    _csrf: token,
-    store_name: '3D Armory',
-    tagline: 'Forged layer by layer.',
-    hero_title: 'Brand new headline',
-    hero_subtitle: 'Sub',
-    announcement: '',
-    about_text: 'About us',
-    contact_email: 'hi@example.com',
-    shipping_flat: '7.00',
-    free_shipping_threshold: '100',
+    const missing = await call('/product/does-not-exist');
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toContain('<title>Not found · 3D Armory</title>');
   });
-  assert.equal(res.status, 302);
-  const home = await request(app).get('/');
-  assert.match(home.text, /Brand new headline/);
-  assert.doesNotMatch(home.text, /class="announcement"/);
+
+  it('compiles every template without undeclared variables', () => {
+    // Templates are precompiled in strict mode; a variable missing from LOCAL_NAMES in
+    // scripts/build-views.mjs would surface here as a ReferenceError.
+    const locals = { settings: { about_text: '' }, categories: [], errors: [], statuses: [], money: String, formatDate: String, centsToInput: String };
+    for (const name of Object.keys(views)) {
+      try {
+        renderTemplate(name, locals);
+      } catch (err) {
+        expect(err, name).not.toBeInstanceOf(ReferenceError);
+      }
+    }
+  });
+
+  it('rejects POST requests without a CSRF token', async () => {
+    const res = await call('/cart/add', { method: 'POST', body: new URLSearchParams({ productId: '1' }) });
+    expect(res.status).toBe(403);
+  });
+
+  it('clamps cart quantities to stock and ignores sold-out items', async () => {
+    const a = agent();
+    const token = await a.csrf('/product/gilded-d20-dice');
+    const dice = await productBySlug('gilded-d20-dice');
+    const vase = await productBySlug('spiral-vortex-vase'); // seeded with stock 0
+
+    await a.form('/cart/add', { _csrf: token, productId: dice.id, quantity: 500 });
+    expect((await a.form('/cart/add', { _csrf: token, productId: vase.id })).status).toBe(302);
+
+    const cart = await a.text('/cart');
+    expect(cart).toContain('Gilded D20 Dice');
+    expect(cart).not.toContain('Spiral Vortex Vase');
+    expect(cart).toContain('value="20"'); // capped at 20 per item
+  });
 });
 
-test('checkout creates a Stripe session from server-side prices and the webhook marks the order paid', async () => {
-  const agent = request.agent(app);
-  const token = await csrfFrom(agent, '/product/gilded-d20-dice');
-  const helm = productBySlug('sentinel-knight-helm');
-  const stockBefore = helm.stock;
+describe('admin', () => {
+  it('requires login and rejects a wrong password', async () => {
+    const res = await call('/admin/products');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toMatch(/^\/admin\/login/);
+    expect(res.headers.get('cache-control')).toBe('no-store');
 
-  await agent.post('/cart/add').type('form').send({ _csrf: token, productId: helm.id, quantity: 2 });
-  const checkout = await agent.post('/checkout').type('form').send({ _csrf: token });
-  assert.equal(checkout.status, 303);
-  assert.equal(checkout.headers.location, 'https://checkout.stripe.com/c/pay/test');
+    const a = agent();
+    const token = await a.csrf('/admin/login');
+    const bad = await a.form('/admin/login', { _csrf: token, email: 'owner@example.com', password: 'nope' });
+    expect(bad.status).toBe(401);
+  });
 
-  const session = createdSessions.at(-1);
-  const line = session.params.line_items[0];
-  assert.equal(line.quantity, 2);
-  assert.equal(line.price_data.unit_amount, helm.price_cents);
-  assert.equal(line.price_data.product_data.name, 'Sentinel Knight Helm');
-  assert.equal(session.params.success_url, 'https://shop.example.com/checkout/success?session_id={CHECKOUT_SESSION_ID}');
+  it('creates, edits and deletes a product with an image in R2', async () => {
+    const a = await adminAgent();
+    const token = await a.csrf('/admin/products/new');
+    const png = Uint8Array.from(
+      atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='),
+      (ch) => ch.charCodeAt(0),
+    );
 
-  const order = db.prepare('SELECT * FROM orders WHERE stripe_session_id = ?').get(session.id);
-  assert.equal(order.status, 'pending');
+    const form = new FormData();
+    Object.entries({ _csrf: token, name: 'Mini Wyvern', description: 'A tiny wyvern.', price: '19.50', track_stock: 'on', stock: '4', active: 'on' })
+      .forEach(([k, v]) => form.append(k, v));
+    form.append('image', new File([png], 'wyvern.png', { type: 'image/png' }));
+    expect((await a.post('/admin/products', form)).status).toBe(302);
 
-  const payload = JSON.stringify({
-    id: 'evt_1',
-    type: 'checkout.session.completed',
-    data: {
-      object: {
-        id: session.id,
-        payment_status: 'paid',
-        amount_total: 2 * helm.price_cents + 700,
-        total_details: { amount_shipping: 700 },
-        customer_details: { email: 'buyer@example.com', name: 'Ada Buyer' },
-        collected_information: {
-          shipping_details: { name: 'Ada Buyer', address: { line1: '1 Forge St', city: 'Ironton', country: 'US' } },
+    const product = await productBySlug('mini-wyvern');
+    expect(product.price_cents).toBe(1950);
+    expect(product.stock).toBe(4);
+    expect(product.image).toMatch(/^\/uploads\/[a-f0-9]{24}\.png$/);
+    const image = await call(product.image);
+    expect(image.status).toBe(200);
+    expect(image.headers.get('content-type')).toBe('image/png');
+    await image.arrayBuffer();
+
+    expect(await (await call('/product/mini-wyvern')).text()).toContain('$19.50');
+
+    // A fake "image" (wrong magic bytes) is rejected.
+    const fake = new FormData();
+    Object.entries({ _csrf: token, name: 'Mini Wyvern', price: '19.50', active: 'on' }).forEach(([k, v]) => fake.append(k, v));
+    fake.append('image', new File(['<svg onload=alert(1)>'], 'x.png', { type: 'image/png' }));
+    expect((await a.post(`/admin/products/${product.id}`, fake)).status).toBe(422);
+
+    expect((await a.form(`/admin/products/${product.id}`, { _csrf: token, name: 'Mini Wyvern', price: '21', active: 'on' })).status).toBe(302);
+    const updated = await productBySlug('mini-wyvern');
+    expect(updated.price_cents).toBe(2100);
+    expect(updated.stock).toBe(null); // stock tracking off => made to order
+    expect(updated.image).toBe(product.image); // image kept
+
+    expect((await a.form(`/admin/products/${product.id}`, { _csrf: token, name: '', price: 'abc' })).status).toBe(422);
+
+    expect((await a.form(`/admin/products/${product.id}/delete`, { _csrf: token })).status).toBe(302);
+    expect(await productBySlug('mini-wyvern')).toBe(null);
+    expect(await env.IMAGES.get(product.image.slice('/uploads/'.length))).toBe(null);
+  });
+
+  it('updates site settings', async () => {
+    const a = await adminAgent();
+    const token = await a.csrf('/admin/settings');
+    const res = await a.form('/admin/settings', {
+      _csrf: token,
+      store_name: '3D Armory',
+      tagline: 'Forged layer by layer.',
+      hero_title: 'Brand new headline',
+      hero_subtitle: 'Sub',
+      announcement: '',
+      about_text: 'About us',
+      contact_email: 'hi@example.com',
+      shipping_flat: '7.00',
+      free_shipping_threshold: '100',
+    });
+    expect(res.status).toBe(302);
+    const home = await (await call('/')).text();
+    expect(home).toContain('Brand new headline');
+    expect(home).not.toContain('class="announcement"');
+  });
+});
+
+describe('checkout', () => {
+  it('creates a Stripe session from server-side prices; the webhook marks the order paid once', async () => {
+    const a = agent();
+    const token = await a.csrf('/product/sentinel-knight-helm');
+    const helm = await productBySlug('sentinel-knight-helm');
+
+    await a.form('/cart/add', { _csrf: token, productId: helm.id, quantity: 2 });
+    const checkout = await a.form('/checkout', { _csrf: token });
+    expect(checkout.status).toBe(303);
+    expect(checkout.headers.get('location')).toBe('https://checkout.stripe.com/c/pay/test');
+
+    const session = createdSessions.at(-1);
+    const line = session.params.line_items[0];
+    expect(line.quantity).toBe(2);
+    expect(line.price_data.unit_amount).toBe(helm.price_cents);
+    expect(session.params.success_url).toBe(`${BASE}/checkout/success?session_id={CHECKOUT_SESSION_ID}`);
+
+    const order = await env.DB.prepare('SELECT * FROM orders WHERE stripe_session_id = ?').bind(session.id).first();
+    expect(order.status).toBe('pending');
+
+    const payload = JSON.stringify({
+      id: 'evt_1',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: session.id,
+          payment_status: 'paid',
+          amount_total: 2 * helm.price_cents + 700,
+          total_details: { amount_shipping: 700 },
+          customer_details: { email: 'buyer@example.com', name: 'Ada Buyer' },
+          collected_information: {
+            shipping_details: { name: 'Ada Buyer', address: { line1: '1 Forge St', city: 'Ironton', country: 'US' } },
+          },
         },
       },
-    },
+    });
+    const hook = (signature) =>
+      call('/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'stripe-signature': signature },
+        body: payload,
+      });
+
+    expect((await hook('t=1,v1=bad')).status).toBe(400);
+
+    const signature = await realStripe.webhooks.generateTestHeaderStringAsync({ payload, secret: 'whsec_test_secret' });
+    expect((await hook(signature)).status).toBe(200);
+
+    const paid = await env.DB.prepare('SELECT * FROM orders WHERE id = ?').bind(order.id).first();
+    expect(paid.status).toBe('paid');
+    expect(paid.customer_email).toBe('buyer@example.com');
+    expect(paid.total_cents).toBe(2 * helm.price_cents + 700);
+    expect((await productBySlug('sentinel-knight-helm')).stock).toBe(helm.stock - 2);
+
+    // Replaying the webhook must not decrement stock twice.
+    await hook(signature);
+    expect((await productBySlug('sentinel-knight-helm')).stock).toBe(helm.stock - 2);
+
+    // Success page clears the cart and shows the order.
+    const success = await a.get(`/checkout/success?session_id=${session.id}`);
+    expect(success.status).toBe(200);
+    expect(await success.text()).toMatch(/Order #\d+/);
+    expect(await a.text('/cart')).toContain('Your cart is empty');
+
+    const admin = await adminAgent();
+    const orders = await admin.get('/admin/orders');
+    expect(orders.status).toBe(200);
+    expect(await orders.text()).toContain('Ada Buyer');
   });
-
-  const forged = await request(app)
-    .post('/webhooks/stripe')
-    .set('Content-Type', 'application/json')
-    .set('Stripe-Signature', 't=1,v1=bad')
-    .send(payload);
-  assert.equal(forged.status, 400);
-
-  const signature = realStripe.webhooks.generateTestHeaderString({ payload, secret: 'whsec_test_secret' });
-  const hook = await request(app)
-    .post('/webhooks/stripe')
-    .set('Content-Type', 'application/json')
-    .set('Stripe-Signature', signature)
-    .send(payload);
-  assert.equal(hook.status, 200);
-
-  const paid = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
-  assert.equal(paid.status, 'paid');
-  assert.equal(paid.customer_email, 'buyer@example.com');
-  assert.equal(paid.total_cents, 2 * helm.price_cents + 700);
-  assert.equal(productBySlug('sentinel-knight-helm').stock, stockBefore - 2);
-
-  // Replaying the webhook must not decrement stock twice.
-  await request(app).post('/webhooks/stripe').set('Content-Type', 'application/json').set('Stripe-Signature', signature).send(payload);
-  assert.equal(productBySlug('sentinel-knight-helm').stock, stockBefore - 2);
-
-  // Success page clears the cart and shows the order.
-  const success = await agent.get(`/checkout/success?session_id=${session.id}`);
-  assert.equal(success.status, 200);
-  assert.match(success.text, /Order #\d+/);
-  assert.match((await agent.get('/cart')).text, /Your cart is empty/);
-
-  // The order shows up for the admin.
-  const admin = await adminAgent();
-  const orders = await admin.get('/admin/orders');
-  assert.match(orders.text, /Ada Buyer/);
 });

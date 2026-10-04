@@ -1,0 +1,39 @@
+// Cloudflare Workers configuration for 3D Armory.
+// Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "3darmory",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Recompile the EJS templates before every `wrangler dev` / `wrangler deploy`.
+  "build": { "command": "npm run build" },
+
+  // CSS, JS, logo and demo artwork are served straight from Cloudflare's edge.
+  "assets": { "directory": "./public" },
+
+  // Products, categories, orders and settings. Replace database_id with the id printed by
+  // `npx wrangler d1 create 3darmory` (see docs/DEPLOY-CLOUDFLARE.md).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "3darmory",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Uploaded product images.
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "3darmory-images" }],
+
+  // Non-secret settings. Secrets (SESSION_SECRET, ADMIN_PASSWORD, STRIPE_SECRET_KEY,
+  // STRIPE_WEBHOOK_SECRET) are set with `npx wrangler secret put NAME`, or in .dev.vars locally.
+  "vars": {
+    "ADMIN_EMAIL": "owner@3darmory.com",
+    "CURRENCY": "usd",
+    "SHIPPING_COUNTRIES": "US,CA"
+  },
+
+  "observability": { "enabled": true }
+}

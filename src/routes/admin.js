@@ -1,137 +1,89 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const crypto = require('node:crypto');
-const express = require('express');
-const multer = require('multer');
+import { Hono } from 'hono';
+import { notFound, render } from '../lib/render.js';
+import { parseMoney } from '../lib/format.js';
+import { ORDER_STATUSES } from '../lib/store.js';
+import { randomHex, safeEqual } from '../lib/session.js';
+import { deleteImage, hasUpload, saveImage } from '../lib/images.js';
 
-const config = require('../config');
-const { parseMoney } = require('../lib/format');
-const { ORDER_STATUSES } = require('../lib/store');
+const admin = new Hono();
 
-const router = express.Router();
+const SESSION_HOURS = 12;
 
-/* ------------------------------ uploads ------------------------------ */
-
-const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: config.uploadsDir,
-    filename: (req, file, cb) => cb(null, crypto.randomBytes(12).toString('hex') + IMAGE_TYPES[file.mimetype]),
-  }),
-  limits: { fileSize: 8 * 1024 * 1024, files: 1, fields: 30 },
-  fileFilter: (req, file, cb) => {
-    if (IMAGE_TYPES[file.mimetype]) return cb(null, true);
-    const err = new Error('Images must be JPG, PNG, WebP or GIF.');
-    err.code = 'INVALID_TYPE';
-    cb(err);
-  },
-}).single('image');
-
-function handleUpload(req, res, next) {
-  upload(req, res, (err) => {
-    if (err) {
-      req.uploadError = err.code === 'LIMIT_FILE_SIZE' ? 'Image is too large (max 8 MB).' : err.message;
-      req.body = req.body || {};
-    }
-    next();
-  });
-}
-
-function removeUploadedFile(image) {
-  if (!image || !image.startsWith('/uploads/')) return;
-  const file = path.join(config.uploadsDir, path.basename(image));
-  fs.rm(file, { force: true }, () => {});
-}
+admin.use('*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store');
+  c.header('X-Robots-Tag', 'noindex');
+});
 
 /* ------------------------------- auth -------------------------------- */
 
-const SESSION_HOURS = 12;
-const loginAttempts = new Map();
+const loginConfigured = (config) => Boolean(config.admin.email && config.admin.password);
+const clientIp = (c) => c.req.header('cf-connecting-ip') || 'unknown';
 
-function tooManyAttempts(ip) {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-  if (!entry || entry.resetAt < now) return false;
-  return entry.count >= 10;
-}
-
-function recordFailedAttempt(ip) {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-  if (!entry || entry.resetAt < now) loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
-  else entry.count += 1;
-}
-
-function safeEqual(a, b) {
-  const ha = crypto.createHash('sha256').update(String(a)).digest();
-  const hb = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(ha, hb);
-}
-
-function requireAdmin(req, res, next) {
-  const admin = req.session.admin;
-  if (admin && Date.now() - admin.at < SESSION_HOURS * 3600 * 1000) return next();
-  req.session.admin = null;
-  const nextUrl = req.method === 'GET' ? `?next=${encodeURIComponent(req.originalUrl)}` : '';
-  res.redirect(`/admin/login${nextUrl}`);
-}
-
-const loginConfigured = () => Boolean(config.admin.email && config.admin.password);
-
-router.use((req, res, next) => {
-  res.set('Cache-Control', 'no-store');
-  res.set('X-Robots-Tag', 'noindex');
-  next();
-});
-
-router.get('/login', (req, res) => {
-  if (req.session.admin) return res.redirect('/admin');
-  res.render('admin/login', {
+admin.get('/login', (c) => {
+  if (c.get('session').admin) return c.redirect('/admin');
+  return render(c, 'admin/login', {
     title: 'Sign in',
-    configured: loginConfigured(),
-    next: typeof req.query.next === 'string' ? req.query.next : '',
+    configured: loginConfigured(c.get('config')),
+    next: c.req.query('next') || '',
     error: null,
     email: '',
   });
 });
 
-router.post('/login', (req, res) => {
-  const ip = req.ip;
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const nextUrl = /^\/admin(\/|$|\?)/.test(req.body.next || '') ? req.body.next : '/admin';
+admin.post('/login', async (c) => {
+  const store = c.get('store');
+  const config = c.get('config');
+  const session = c.get('session');
+  const body = c.get('body');
+  const ip = clientIp(c);
+  const email = String(body.email || '').trim().toLowerCase();
+  const nextUrl = /^\/admin(\/|$|\?)/.test(body.next || '') ? body.next : '/admin';
   const fail = (error) =>
-    res.status(401).render('admin/login', { title: 'Sign in', configured: loginConfigured(), next: nextUrl, error, email });
+    render(c, 'admin/login', { title: 'Sign in', configured: loginConfigured(config), next: nextUrl, error, email }, 401);
 
-  if (!loginConfigured()) return fail('Admin login is not configured.');
-  if (tooManyAttempts(ip)) return fail('Too many attempts. Please wait 15 minutes and try again.');
+  if (!loginConfigured(config)) return fail('Admin login is not configured.');
+  if (await store.tooManyLoginAttempts(ip)) return fail('Too many attempts. Please wait 15 minutes and try again.');
 
-  const ok = safeEqual(email, config.admin.email) & safeEqual(req.body.password || '', config.admin.password);
-  if (!ok) {
-    recordFailedAttempt(ip);
+  const [emailOk, passwordOk] = await Promise.all([
+    safeEqual(email, config.admin.email),
+    safeEqual(body.password || '', config.admin.password),
+  ]);
+  if (!emailOk || !passwordOk) {
+    await store.recordFailedLogin(ip);
     return fail('Incorrect email or password.');
   }
-  loginAttempts.delete(ip);
-  req.session.admin = { email, at: Date.now() };
-  req.session.csrf = crypto.randomBytes(24).toString('hex');
-  res.redirect(nextUrl);
+  await store.clearLoginAttempts(ip);
+  session.admin = { email, at: Date.now() };
+  session.csrf = randomHex();
+  return c.redirect(nextUrl);
 });
 
-router.post('/logout', (req, res) => {
-  req.session.admin = null;
-  res.redirect('/admin/login');
+admin.post('/logout', (c) => {
+  c.get('session').admin = null;
+  return c.redirect('/admin/login');
 });
 
-router.use(requireAdmin);
+admin.use('*', async (c, next) => {
+  const session = c.get('session');
+  if (session.admin && Date.now() - session.admin.at < SESSION_HOURS * 3600 * 1000) return next();
+  session.admin = null;
+  const nextUrl = c.req.method === 'GET' ? `?next=${encodeURIComponent(c.req.path + new URL(c.req.url).search)}` : '';
+  return c.redirect(`/admin/login${nextUrl}`);
+});
+
+const flash = (c, type, message) => {
+  c.get('session').flash = { type, message };
+};
 
 /* ----------------------------- dashboard ----------------------------- */
 
-router.get('/', (req, res) => {
-  const { store, stripe } = req.app.locals;
-  res.render('admin/dashboard', {
+admin.get('/', async (c) => {
+  const config = c.get('config');
+  return render(c, 'admin/dashboard', {
     title: 'Dashboard',
-    stats: store.dashboardStats(),
-    stripeConfigured: Boolean(stripe),
+    stats: await c.get('store').dashboardStats(),
+    stripeConfigured: Boolean(c.get('stripe')),
     webhookConfigured: Boolean(config.stripe.webhookSecret),
     baseUrl: config.baseUrl,
   });
@@ -179,8 +131,6 @@ function parseProductForm(body, existing) {
     }
   }
 
-  const categoryId = Number(body.category_id) || null;
-
   return {
     errors,
     data: {
@@ -189,7 +139,7 @@ function parseProductForm(body, existing) {
       description: String(body.description || '').trim().slice(0, 5000),
       price_cents: price ?? 0,
       compare_at_cents: compareAt && price !== null && compareAt > price ? compareAt : null,
-      category_id: categoryId,
+      category_id: Number(body.category_id) || null,
       stock,
       material: String(body.material || '').trim().slice(0, 120),
       dimensions: String(body.dimensions || '').trim().slice(0, 120),
@@ -200,68 +150,78 @@ function parseProductForm(body, existing) {
   };
 }
 
-router.get('/products', (req, res) => {
-  const { store } = req.app.locals;
-  res.render('admin/products', {
+admin.get('/products', async (c) =>
+  render(c, 'admin/products', {
     title: 'Products',
-    products: store.listProducts({ includeInactive: true, sort: 'name' }),
-  });
-});
+    products: await c.get('store').listProducts({ includeInactive: true, sort: 'name' }),
+  }),
+);
 
-router.get('/products/new', (req, res) => {
-  res.render('admin/product-form', { title: 'New product', product: emptyProduct(), errors: [] });
-});
+admin.get('/products/new', (c) =>
+  render(c, 'admin/product-form', { title: 'New product', product: emptyProduct(), errors: [] }),
+);
 
-router.post('/products', handleUpload, (req, res) => {
-  const { store } = req.app.locals;
-  const { data, errors } = parseProductForm(req.body);
-  if (req.uploadError) errors.push(req.uploadError);
+admin.post('/products', async (c) => {
+  const body = c.get('body');
+  const { data, errors } = parseProductForm(body);
+  if (!errors.length && hasUpload(body.image)) {
+    const saved = await saveImage(c.env.IMAGES, body.image);
+    if (saved.error) errors.push(saved.error);
+    else data.image = saved.path;
+  }
   if (errors.length) {
-    if (req.file) removeUploadedFile(`/uploads/${req.file.filename}`);
-    return res.status(422).render('admin/product-form', { title: 'New product', product: data, errors });
+    await deleteImage(c.env.IMAGES, data.image);
+    return render(c, 'admin/product-form', { title: 'New product', product: data, errors }, 422);
   }
-  if (req.file) data.image = `/uploads/${req.file.filename}`;
-  store.createProduct(data);
-  req.flash('success', `“${data.name}” was created.`);
-  res.redirect('/admin/products');
+  await c.get('store').createProduct(data);
+  flash(c, 'success', `“${data.name}” was created.`);
+  return c.redirect('/admin/products');
 });
 
-router.get('/products/:id/edit', (req, res, next) => {
-  const product = req.app.locals.store.getProduct(Number(req.params.id));
-  if (!product) return next();
-  res.render('admin/product-form', { title: `Edit ${product.name}`, product, errors: [] });
+admin.get('/products/:id/edit', async (c) => {
+  const product = await c.get('store').getProduct(Number(c.req.param('id')));
+  if (!product) return notFound(c);
+  return render(c, 'admin/product-form', { title: `Edit ${product.name}`, product, errors: [] });
 });
 
-router.post('/products/:id', handleUpload, (req, res, next) => {
-  const { store } = req.app.locals;
-  const existing = store.getProduct(Number(req.params.id));
-  if (!existing) return next();
-  const { data, errors } = parseProductForm(req.body, existing);
-  if (req.uploadError) errors.push(req.uploadError);
+admin.post('/products/:id', async (c) => {
+  const store = c.get('store');
+  const body = c.get('body');
+  const existing = await store.getProduct(Number(c.req.param('id')));
+  if (!existing) return notFound(c);
+  const { data, errors } = parseProductForm(body, existing);
+  let uploaded = null;
+  if (!errors.length && hasUpload(body.image)) {
+    const saved = await saveImage(c.env.IMAGES, body.image);
+    if (saved.error) errors.push(saved.error);
+    else uploaded = saved.path;
+  }
   if (errors.length) {
-    if (req.file) removeUploadedFile(`/uploads/${req.file.filename}`);
-    return res
-      .status(422)
-      .render('admin/product-form', { title: `Edit ${existing.name}`, product: { ...data, id: existing.id }, errors });
+    return render(
+      c,
+      'admin/product-form',
+      { title: `Edit ${existing.name}`, product: { ...data, id: existing.id }, errors },
+      422,
+    );
   }
-  if (req.file || req.body.remove_image === 'on') {
-    removeUploadedFile(existing.image);
-    data.image = req.file ? `/uploads/${req.file.filename}` : null;
+  if (uploaded || body.remove_image === 'on') {
+    await deleteImage(c.env.IMAGES, existing.image);
+    data.image = uploaded;
   }
-  store.updateProduct(existing.id, data);
-  req.flash('success', `“${data.name}” was saved.`);
-  res.redirect('/admin/products');
+  await store.updateProduct(existing.id, data);
+  flash(c, 'success', `“${data.name}” was saved.`);
+  return c.redirect('/admin/products');
 });
 
-router.post('/products/:id/delete', (req, res) => {
-  const { store } = req.app.locals;
-  const product = store.getProduct(Number(req.params.id));
+admin.post('/products/:id/delete', async (c) => {
+  const store = c.get('store');
+  const product = await store.getProduct(Number(c.req.param('id')));
   if (product) {
-    store.deleteProduct(product.id);
-    removeUploadedFile(product.image);
-    req.flash('success', `“${product.name}” was deleted.`);
+    await store.deleteProduct(product.id);
+    await deleteImage(c.env.IMAGES, product.image);
+    flash(c, 'success', `“${product.name}” was deleted.`);
   }
-  res.redirect('/admin/products');
+  return c.redirect('/admin/products');
 });
 
 /* ----------------------------- categories ---------------------------- */
@@ -274,90 +234,88 @@ function parseCategoryForm(body) {
   };
 }
 
-router.get('/categories', (req, res) => {
-  res.render('admin/categories', { title: 'Categories' });
-});
+admin.get('/categories', (c) => render(c, 'admin/categories', { title: 'Categories' }));
 
-router.post('/categories', (req, res) => {
-  const data = parseCategoryForm(req.body);
-  if (!data.name) req.flash('error', 'Category name is required.');
+admin.post('/categories', async (c) => {
+  const data = parseCategoryForm(c.get('body'));
+  if (!data.name) flash(c, 'error', 'Category name is required.');
   else {
-    req.app.locals.store.createCategory(data);
-    req.flash('success', `Category “${data.name}” added.`);
+    await c.get('store').createCategory(data);
+    flash(c, 'success', `Category “${data.name}” added.`);
   }
-  res.redirect('/admin/categories');
+  return c.redirect('/admin/categories');
 });
 
-router.post('/categories/:id', (req, res) => {
-  const data = parseCategoryForm(req.body);
-  if (!data.name) req.flash('error', 'Category name is required.');
+admin.post('/categories/:id', async (c) => {
+  const data = parseCategoryForm(c.get('body'));
+  if (!data.name) flash(c, 'error', 'Category name is required.');
   else {
-    req.app.locals.store.updateCategory(Number(req.params.id), data);
-    req.flash('success', `Category “${data.name}” saved.`);
+    await c.get('store').updateCategory(Number(c.req.param('id')), data);
+    flash(c, 'success', `Category “${data.name}” saved.`);
   }
-  res.redirect('/admin/categories');
+  return c.redirect('/admin/categories');
 });
 
-router.post('/categories/:id/delete', (req, res) => {
-  req.app.locals.store.deleteCategory(Number(req.params.id));
-  req.flash('success', 'Category deleted. Its products are now uncategorised.');
-  res.redirect('/admin/categories');
+admin.post('/categories/:id/delete', async (c) => {
+  await c.get('store').deleteCategory(Number(c.req.param('id')));
+  flash(c, 'success', 'Category deleted. Its products are now uncategorised.');
+  return c.redirect('/admin/categories');
 });
 
 /* ------------------------------- orders ------------------------------ */
 
-router.get('/orders', (req, res) => {
-  const status = typeof req.query.status === 'string' ? req.query.status : '';
-  res.render('admin/orders', {
+admin.get('/orders', async (c) => {
+  const status = c.req.query('status') || '';
+  return render(c, 'admin/orders', {
     title: 'Orders',
-    orders: req.app.locals.store.listOrders({ status: status || undefined }),
+    orders: await c.get('store').listOrders({ status: status || undefined }),
     status,
     statuses: ORDER_STATUSES,
   });
 });
 
-router.get('/orders/:id', (req, res, next) => {
-  const order = req.app.locals.store.getOrder(Number(req.params.id));
-  if (!order) return next();
-  res.render('admin/order', { title: `Order #${order.id}`, order, statuses: ORDER_STATUSES });
+admin.get('/orders/:id', async (c) => {
+  const order = await c.get('store').getOrder(Number(c.req.param('id')));
+  if (!order) return notFound(c);
+  return render(c, 'admin/order', { title: `Order #${order.id}`, order, statuses: ORDER_STATUSES });
 });
 
-router.post('/orders/:id', (req, res, next) => {
-  const { store } = req.app.locals;
-  const order = store.getOrder(Number(req.params.id));
-  if (!order) return next();
-  const status = ORDER_STATUSES.includes(req.body.status) ? req.body.status : order.status;
-  store.updateOrder(order.id, { status, notes: String(req.body.notes || '').slice(0, 2000) });
-  req.flash('success', `Order #${order.id} updated.`);
-  res.redirect(`/admin/orders/${order.id}`);
+admin.post('/orders/:id', async (c) => {
+  const store = c.get('store');
+  const body = c.get('body');
+  const order = await store.getOrder(Number(c.req.param('id')));
+  if (!order) return notFound(c);
+  const status = ORDER_STATUSES.includes(body.status) ? body.status : order.status;
+  await store.updateOrder(order.id, { status, notes: String(body.notes || '').slice(0, 2000) });
+  flash(c, 'success', `Order #${order.id} updated.`);
+  return c.redirect(`/admin/orders/${order.id}`);
 });
 
 /* ------------------------------ settings ----------------------------- */
 
 const TEXT_SETTINGS = ['store_name', 'tagline', 'hero_title', 'hero_subtitle', 'announcement', 'about_text', 'contact_email'];
 
-router.get('/settings', (req, res) => {
-  res.render('admin/settings', { title: 'Site settings', errors: [] });
-});
+admin.get('/settings', (c) => render(c, 'admin/settings', { title: 'Site settings', errors: [] }));
 
-router.post('/settings', (req, res) => {
+admin.post('/settings', async (c) => {
+  const body = c.get('body');
   const values = {};
-  for (const key of TEXT_SETTINGS) values[key] = String(req.body[key] ?? '').trim().slice(0, 3000);
+  for (const key of TEXT_SETTINGS) values[key] = String(body[key] ?? '').trim().slice(0, 3000);
   const errors = [];
-  const flat = parseMoney(req.body.shipping_flat);
-  const threshold = String(req.body.free_shipping_threshold || '').trim() ? parseMoney(req.body.free_shipping_threshold) : 0;
+  const flat = parseMoney(body.shipping_flat);
+  const threshold = String(body.free_shipping_threshold || '').trim() ? parseMoney(body.free_shipping_threshold) : 0;
   if (flat === null) errors.push('Flat shipping rate must be a number (use 0 for free shipping).');
   if (threshold === null) errors.push('Free-shipping threshold must be a number, or blank to disable.');
   if (!values.store_name) errors.push('Store name is required.');
   if (errors.length) {
-    res.locals.settings = { ...res.locals.settings, ...values };
-    return res.status(422).render('admin/settings', { title: 'Site settings', errors });
+    const locals = c.get('locals');
+    return render(c, 'admin/settings', { title: 'Site settings', errors, settings: { ...locals.settings, ...values } }, 422);
   }
   values.shipping_flat_cents = flat;
   values.free_shipping_threshold_cents = threshold;
-  req.app.locals.store.updateSettings(values);
-  req.flash('success', 'Settings saved.');
-  res.redirect('/admin/settings');
+  await c.get('store').updateSettings(values);
+  flash(c, 'success', 'Settings saved.');
+  return c.redirect('/admin/settings');
 });
 
-module.exports = router;
+export default admin;
