@@ -1,0 +1,51 @@
+<%- include('../partials/header') %>
+
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow eyebrow-line"><%= activeCategory ? 'Collection' : 'The Armory' %></span>
+    <h1><%= activeCategory ? activeCategory.name : 'All products' %></h1>
+    <% if (activeCategory && activeCategory.description) { %><p class="lead"><%= activeCategory.description %></p><% } %>
+  </div>
+</section>
+
+<section class="section section-tight">
+  <div class="container">
+    <form class="toolbar" method="get" action="/shop">
+      <div class="chips" role="list">
+        <a role="listitem" class="chip <%= !activeCategory ? 'active' : '' %>" href="/shop<%= q ? `?q=${encodeURIComponent(q)}` : '' %>">All</a>
+        <% categories.forEach((c) => { %>
+          <a role="listitem" class="chip <%= activeCategory && activeCategory.id === c.id ? 'active' : '' %>" href="/shop?category=<%= c.slug %><%= q ? `&q=${encodeURIComponent(q)}` : '' %>"><%= c.name %></a>
+        <% }) %>
+      </div>
+      <div class="toolbar-controls">
+        <% if (activeCategory) { %><input type="hidden" name="category" value="<%= activeCategory.slug %>"><% } %>
+        <label class="sr-only" for="q">Search</label>
+        <input class="input" type="search" id="q" name="q" value="<%= q %>" placeholder="Search products…">
+        <label class="sr-only" for="sort">Sort by</label>
+        <select class="input" id="sort" name="sort" data-autosubmit>
+          <option value="newest" <%= sort === 'newest' ? 'selected' : '' %>>Newest</option>
+          <option value="price-asc" <%= sort === 'price-asc' ? 'selected' : '' %>>Price: low to high</option>
+          <option value="price-desc" <%= sort === 'price-desc' ? 'selected' : '' %>>Price: high to low</option>
+          <option value="name" <%= sort === 'name' ? 'selected' : '' %>>Name</option>
+        </select>
+        <button class="btn btn-ghost" type="submit">Search</button>
+      </div>
+    </form>
+
+    <% if (products.length) { %>
+      <p class="muted small result-count"><%= products.length %> product<%= products.length === 1 ? '' : 's' %><%= q ? ` matching “${q}”` : '' %></p>
+      <div class="product-grid">
+        <% products.forEach((product) => { %><%- include('../partials/product-card', { product }) %><% }) %>
+      </div>
+    <% } else { %>
+      <div class="empty-state">
+        <img src="/img/logo.svg" alt="" width="56" height="63">
+        <h2>Nothing in the armory yet</h2>
+        <p class="muted">No products match your search. Try a different term or browse everything.</p>
+        <a class="btn btn-gold" href="/shop">View all products</a>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<%- include('../partials/footer') %>

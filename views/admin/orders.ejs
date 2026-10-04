@@ -1,0 +1,42 @@
+<%- include('partials/top') %>
+
+<div class="admin-head">
+  <div>
+    <h1>Orders</h1>
+    <p class="muted">Paid orders appear here automatically after Stripe checkout.</p>
+  </div>
+</div>
+
+<nav class="chips chips-admin">
+  <a class="chip <%= !status ? 'active' : '' %>" href="/admin/orders">Active</a>
+  <% statuses.forEach((s) => { %>
+    <a class="chip <%= status === s ? 'active' : '' %>" href="/admin/orders?status=<%= s %>"><%= s[0].toUpperCase() + s.slice(1) %></a>
+  <% }) %>
+  <a class="chip <%= status === 'all' ? 'active' : '' %>" href="/admin/orders?status=all">All</a>
+</nav>
+
+<section class="panel panel-flush">
+  <% if (orders.length) { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Order</th><th>Date</th><th>Customer</th><th class="num">Items</th><th>Status</th><th class="num">Total</th></tr></thead>
+        <tbody>
+          <% orders.forEach((o) => { %>
+            <tr>
+              <td><a href="/admin/orders/<%= o.id %>"><strong>#<%= o.id %></strong></a></td>
+              <td><%= formatDate(o.paid_at || o.created_at) %></td>
+              <td><%= o.customer_name || '—' %><br><span class="muted small"><%= o.customer_email || '' %></span></td>
+              <td class="num"><%= o.item_count || 0 %></td>
+              <td><span class="status status-<%= o.status %>"><%= o.status %></span></td>
+              <td class="num"><%= money(o.total_cents) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <p class="muted pad">No orders to show.</p>
+  <% } %>
+</section>
+
+<%- include('partials/bottom') %>

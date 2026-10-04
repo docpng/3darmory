@@ -1,0 +1,26 @@
+<article class="product-card">
+  <a href="/product/<%= product.slug %>" class="product-card-link">
+    <div class="product-card-media">
+      <% if (product.image) { %>
+        <img src="<%= product.image %>" alt="<%= product.name %>" loading="lazy">
+      <% } else { %>
+        <div class="product-card-placeholder"><img src="/img/logo.svg" alt=""></div>
+      <% } %>
+      <% if (product.stock === 0) { %>
+        <span class="badge badge-muted">Sold out</span>
+      <% } else if (product.compare_at_cents) { %>
+        <span class="badge">Sale</span>
+      <% } else if (product.stock === null) { %>
+        <span class="badge badge-outline">Made to order</span>
+      <% } %>
+    </div>
+    <div class="product-card-body">
+      <% if (product.category_name) { %><span class="eyebrow"><%= product.category_name %></span><% } %>
+      <h3><%= product.name %></h3>
+      <div class="price">
+        <span><%= money(product.price_cents) %></span>
+        <% if (product.compare_at_cents) { %><s><%= money(product.compare_at_cents) %></s><% } %>
+      </div>
+    </div>
+  </a>
+</article>

@@ -1,0 +1,77 @@
+<%- include('partials/top') %>
+
+<div class="admin-head">
+  <div>
+    <a class="muted small" href="/admin/orders">&larr; Orders</a>
+    <h1>Order #<%= order.id %> <span class="status status-<%= order.status %>"><%= order.status %></span></h1>
+    <p class="muted">Placed <%= formatDate(order.created_at) %><%= order.paid_at ? ` · paid ${formatDate(order.paid_at)}` : '' %></p>
+  </div>
+</div>
+
+<div class="admin-columns admin-columns-wide">
+  <section class="panel">
+    <h2>Items</h2>
+    <table class="table">
+      <thead><tr><th>Product</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Total</th></tr></thead>
+      <tbody>
+        <% order.items.forEach((i) => { %>
+          <tr>
+            <td><% if (i.product_id) { %><a href="/admin/products/<%= i.product_id %>/edit"><%= i.name %></a><% } else { %><%= i.name %><% } %></td>
+            <td class="num"><%= i.quantity %></td>
+            <td class="num"><%= money(i.unit_price_cents) %></td>
+            <td class="num"><%= money(i.unit_price_cents * i.quantity) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+      <tfoot>
+        <tr><td colspan="3">Subtotal</td><td class="num"><%= money(order.subtotal_cents) %></td></tr>
+        <tr><td colspan="3">Shipping</td><td class="num"><%= money(order.shipping_cents) %></td></tr>
+        <tr class="total"><td colspan="3">Total</td><td class="num"><%= money(order.total_cents) %></td></tr>
+      </tfoot>
+    </table>
+  </section>
+
+  <div class="stack">
+    <section class="panel">
+      <h2>Customer</h2>
+      <% if (order.customer_email || order.customer_name) { %>
+        <p><strong><%= order.customer_name || '—' %></strong><br>
+          <% if (order.customer_email) { %><a class="link-gold" href="mailto:<%= order.customer_email %>"><%= order.customer_email %></a><% } %></p>
+        <% if (order.address) { %>
+          <h3 class="small muted">Ship to</h3>
+          <address>
+            <%= order.address.line1 %><br>
+            <% if (order.address.line2) { %><%= order.address.line2 %><br><% } %>
+            <%= [order.address.city, order.address.state, order.address.postal_code].filter(Boolean).join(', ') %><br>
+            <%= order.address.country %>
+          </address>
+        <% } %>
+      <% } else { %>
+        <p class="muted">No customer details yet — checkout was not completed.</p>
+      <% } %>
+      <% if (order.stripe_session_id) { %>
+        <p class="muted small break">Stripe session: <code><%= order.stripe_session_id %></code></p>
+      <% } %>
+    </section>
+
+    <section class="panel">
+      <h2>Fulfilment</h2>
+      <form class="form" method="post" action="/admin/orders/<%= order.id %>">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label class="field">
+          <span>Status</span>
+          <select class="input" name="status">
+            <% statuses.forEach((s) => { %><option value="<%= s %>" <%= order.status === s ? 'selected' : '' %>><%= s[0].toUpperCase() + s.slice(1) %></option><% }) %>
+          </select>
+        </label>
+        <label class="field">
+          <span>Internal notes</span>
+          <textarea class="input" name="notes" rows="4" placeholder="Tracking number, paint colour requests…"><%= order.notes %></textarea>
+        </label>
+        <button class="btn btn-gold btn-block" type="submit">Update order</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<%- include('partials/bottom') %>

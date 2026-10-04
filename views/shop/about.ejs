@@ -1,0 +1,27 @@
+<%- include('../partials/header') %>
+
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow eyebrow-line">About</span>
+    <h1>The workshop behind <span class="text-gold"><%= settings.store_name %></span></h1>
+  </div>
+</section>
+
+<section class="section section-tight">
+  <div class="container about-grid">
+    <div class="prose prose-lg">
+      <% settings.about_text.split(/\n{2,}/).forEach((para) => { %><p><%= para %></p><% }) %>
+      <% if (settings.contact_email) { %>
+        <p><a class="btn btn-gold" href="mailto:<%= settings.contact_email %>">Email <%= settings.contact_email %></a></p>
+      <% } %>
+    </div>
+    <ul class="about-facts">
+      <li><strong>Models</strong><span>Sculptures, busts &amp; terrain</span></li>
+      <li><strong>Figures</strong><span>Collectibles &amp; tabletop minis</span></li>
+      <li><strong>Trinkets</strong><span>Dice, keychains &amp; desk gear</span></li>
+      <li><strong>Custom</strong><span>Commissions welcome</span></li>
+    </ul>
+  </div>
+</section>
+
+<%- include('../partials/footer') %>
